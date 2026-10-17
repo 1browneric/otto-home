@@ -1,0 +1,66 @@
+/* Otto Home System map (themes/network.js), loaded ahead of combined.css, whose variables
+   and Public Sans import it uses. Names 18px, status words 15px. No red, no green, no purple. */
+
+.n-health { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; color: var(--ink, #ECEDEE); margin-top: 4px; }
+.n-hshape { display: inline-block; flex: none; width: 14px; height: 14px; }
+.n-hshape.ok { border-radius: 50%; background: var(--teal, #3FB8AE); }
+.n-hshape.problem { background: var(--amber, #E3A23B); }
+.n-meta { font-size: 15px; color: var(--muted, #A3A9B0); margin: 4px 0 12px; }
+
+.n-legend { background: var(--card, #1C1E21); border: 1px solid var(--line, #2A2D31); border-radius: 16px; padding: 12px 14px; }
+.n-legend .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.n-legend-lines { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line, #2A2D31); }
+.n-key { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: var(--soft, #C9CDD2); }
+
+/* Map */
+.n-map-wrap { margin: 8px 0 0; }
+.n-map { display: block; width: 100%; max-width: 358px; height: auto; margin: 0 auto; overflow: visible; }
+.n-link { stroke: #4A4F57; stroke-width: 2; }
+.n-link.n-working { stroke: var(--teal, #3FB8AE); stroke-width: 3; stroke-dasharray: 7 5; animation: n-flow 1.4s linear infinite; }
+.n-link.n-link-on { stroke: var(--blue-hi, #8DB3F5); }
+.n-link.n-working.n-link-on { stroke: var(--teal, #3FB8AE); }
+@keyframes n-flow { to { stroke-dashoffset: -24; } }
+@media (prefers-reduced-motion: reduce) { .n-link.n-working { animation: none; } }
+
+.n-otto { cursor: pointer; }
+.n-otto-dot { fill: var(--blue, #2E62C0); stroke: #5B8DEF; stroke-width: 2; }
+.n-otto-name { fill: #FFFFFF; font: 700 22px "Public Sans", -apple-system, Arial, sans-serif; }
+.n-otto-count { fill: #FFFFFF; font: 600 18px "Public Sans", -apple-system, Arial, sans-serif; }
+.n-otto:focus { outline: none; }
+.n-otto:focus-visible .n-otto-dot { stroke: #FFFFFF; stroke-width: 3; }
+
+.n-node { cursor: pointer; }
+.n-node:focus { outline: none; }
+.n-hit { fill: transparent; }
+.n-ring { fill: none; stroke: var(--blue-hi, #8DB3F5); stroke-width: 2; }
+.n-node:focus-visible .n-ring, .n-node:focus-visible .n-hit { stroke: var(--blue-hi, #8DB3F5); stroke-width: 2; }
+.n-name, .n-word { paint-order: stroke; stroke: var(--bg, #111214); stroke-width: 5px; stroke-linejoin: round; }
+.n-name { fill: var(--ink, #ECEDEE); font: 600 18px "Public Sans", -apple-system, Arial, sans-serif; }
+.n-word { fill: var(--muted, #A3A9B0); font: 500 15px "Public Sans", -apple-system, Arial, sans-serif; }
+.n-node.on .n-name { fill: var(--blue-hi, #8DB3F5); }
+
+/* Node shapes: the same shapes as the legend (combined .shape.*) */
+.n-node-shape.s-live { fill: var(--blue-hi, #8DB3F5); }
+.n-node-shape.s-dark { fill: var(--bg, #111214); stroke: var(--blue-hi, #8DB3F5); stroke-width: 3; }
+.n-node-shape.s-dormant { fill: var(--muted, #A3A9B0); }
+.n-node-shape.s-running { fill: var(--teal, #3FB8AE); }
+.n-node-shape.s-retired { fill: var(--soft, #C9CDD2); }
+.n-node-shape.s-unknown { fill: var(--bg, #111214); stroke: var(--muted, #A3A9B0); stroke-width: 2; stroke-dasharray: 4 3; }
+.n-node-shape.s-needs_you { fill: var(--amber, #E3A23B); }
+.n-node-shape.s-dry_run { fill: var(--bg, #111214); stroke: var(--blue-hi, #8DB3F5); stroke-width: 3; }
+
+/* Team card */
+.n-hint { text-align: center; font-size: 15px; color: var(--muted, #A3A9B0); margin: 4px 0 8px; }
+.n-card { background: var(--card, #1C1E21); border: 1px solid var(--blue-hi, #8DB3F5); border-radius: 16px; padding: 14px 16px 16px; margin: 6px 0 12px; scroll-margin-bottom: 96px; }
+.n-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.n-card-title { font-family: Georgia, "Times New Roman", serif; font-weight: normal; font-size: 24px; margin: 0; line-height: 1.2; }
+.n-card-dept { font-size: 15px; color: var(--muted, #A3A9B0); margin-top: 2px; }
+.n-close { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line, #2A2D31); background: var(--raise, #24272B); color: var(--blue-hi, #8DB3F5); font-size: 16px; font-weight: 600; cursor: pointer; }
+.n-card-state { margin-top: 8px; }
+.n-card-state .st { font-size: 15px; }
+.n-now { font-size: 18px; color: var(--teal, #3FB8AE); margin-top: 8px; font-weight: 600; }
+.n-did { font-size: 18px; margin-top: 8px; line-height: 1.35; }
+.n-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.n-count { background: var(--raise, #24272B); border-radius: 12px; padding: 10px 8px; text-align: center; }
+.n-count-n { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.n-count-l { font-size: 15px; color: var(--muted, #A3A9B0); margin-top: 2px; }

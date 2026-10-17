@@ -11,15 +11,17 @@
   var VERB_LABEL = { approve: "Approve", deny: "Deny", snooze: "Snooze", done: "Done", undo: "Undo" };
   var K = {
     exec: "otto-home.exec", key: "otto-home.key", snap: "otto-home.snapshot",
-    sent: "otto-home.sent", tab: "otto-home.tab"
+    sent: "otto-home.sent"
   };
+  // Four tabs in every theme: Home (id "today"), Lists, Activity, System.
+  // Old hashes still land on the tab that now holds them.
   var TABS = [
-    { id: "needs", short: "Needs You", title: "Needs You" },
-    { id: "working", short: "Working", title: "Otto working" },
-    { id: "built", short: "Built", title: "Everything built" },
-    { id: "domains", short: "Domains", title: "Life domains" },
-    { id: "timeline", short: "Timeline", title: "Timeline" }
+    { id: "today", short: "Home", title: "Home" },
+    { id: "lists", short: "Lists", title: "Lists" },
+    { id: "activity", short: "Activity", title: "Activity" },
+    { id: "system", short: "System", title: "System" }
   ];
+  var OLD_TAB = { home: "today", needs: "today", working: "system", built: "system", domains: "lists", life: "lists", timeline: "activity" };
   var STATES = {
     live: "Live", dark: "Dark", dormant: "Dormant", retired: "Retired",
     running: "Running", needs_you: "Needs you", dry_run: "Dry run"
@@ -32,6 +34,7 @@
 
   var params = new URLSearchParams(location.search);
   var DEMO = params.get("demo") === "1";
+  var THEME_KEY = "otto-home.theme";
 
   /* ---------- storage, always inside try/catch ---------- */
   var store = {
@@ -166,27 +169,11 @@
       last: t.last
     };
   }
-  function latency(at) {
-    var ti = tickInfo(), when = at ? new Date(at) : new Date();
-    var mins = centralMinutes(when);
-    if (mins >= ti.lastEvening || mins < ti.firstMorning) {
-      return { phrase: "in the morning", about: "About " + clock(ti.firstMorning) };
-    }
-    var last = d(ti.last), next;
-    if (last) {
-      next = new Date(last.getTime());
-      while (next <= when) next = new Date(next.getTime() + ti.cadence * 60000);
-      return { phrase: "on the next tick", about: "About " + fmtTime(next) };
-    }
-    return { phrase: "on the next tick", about: "Within " + ti.cadence + " min" };
+  function applyPhrase(at) {
+    var mins = centralMinutes(at ? new Date(at) : new Date());
+    return (mins >= 22 * 60 || mins < 6 * 60 + 4) ? "applies about 6:05 AM" : "applies within 5 minutes";
   }
-  function sentLines(r) {
-    var l = latency(r.at);
-    return [
-      h("div.status-line", null, (r.ok ? "Sent" : "Sending") + " - " + VERB_LABEL[r.action] + " - applies " + l.phrase),
-      h("div.note", null, l.about)
-    ];
-  }
+  var DONE_WORD = { approve: "Approved", deny: "Denied", snooze: "Snoozed", done: "Done", undo: "Undo sent" };
 
   /* ---------- credentials ---------- */
   function creds() {
@@ -220,6 +207,17 @@
     if (s.tick) s.tick.last = new Date(Math.floor((now - 4 * 60000) / 1800000) * 1800000).toISOString();
     return s;
   }
+  // ?demo=1&problem=1 adds the sample's one failed action (demo_problem) so the health line
+  // has something to show. The entry lives in the data, so the shell names no agent.
+  function demoProblem(s) {
+    var p = s.demo_problem;
+    if (params.get("problem") !== "1" || !p) return s;
+    var e = {};
+    Object.keys(p).forEach(function (k) { if (k !== "minutes_ago") e[k] = p[k]; });
+    e.ts = new Date(Date.now() - (p.minutes_ago || 0) * 60000).toISOString();
+    (s.timeline = s.timeline || []).unshift(e);
+    return s;
+  }
   function valid(j) { return j && typeof j === "object" && j.v === 1 && typeof j.generated === "string"; }
 
   function load() {
@@ -227,7 +225,7 @@
       state.loading = true; render();
       return fetch("sample-snapshot.json", { cache: "no-store" })
         .then(function (r) { if (!r.ok) throw new Error("missing"); return r.json(); })
-        .then(function (j) { state.snap = rebaseDemo(j); state.error = null; })
+        .then(function (j) { state.snap = demoProblem(rebaseDemo(j)); state.error = null; })
         .catch(function () { state.error = "Demo data not found"; })
         .then(function () { state.loading = false; pickTab(); render(); });
     }
@@ -280,17 +278,13 @@
     });
     saveSent();
   }
-  function send(id, action, token) {
-    if (VERBS.indexOf(action) < 0) return;
-    var rec = { action: action, at: new Date().toISOString(), ok: null, token: token };
-    delete state.reasons[id];
-    state.sent[id] = rec; render();
+  function post(id, rec) {
     if (DEMO) { rec.ok = true; render(); return; }
     var c = creds();
     if (!c) { showSignIn(); return; }
     fetch(c.exec, {
       method: "POST",
-      body: JSON.stringify({ k: c.key, action: action, id: id, token: token }),
+      body: JSON.stringify({ k: c.key, action: rec.action, id: id, token: rec.token }),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       redirect: "follow", credentials: "omit"
     })
@@ -303,6 +297,48 @@
       .catch(function () { rec.ok = false; rec.err = "Offline"; })
       .then(function () { saveSent(); if (!state.signin) render(); });
   }
+  // A tap shows its result at once, waits UNDO_MS behind the toast, then posts.
+  // Undo inside the window cancels locally; nothing was sent.
+  var UNDO_MS = 6000, toastTimer = null, toastBatch = null;
+  function flushToast() {
+    if (!toastBatch) return;
+    clearTimeout(toastTimer);
+    var b = toastBatch; toastBatch = null; hideToast();
+    b.forEach(function (x) { if (state.sent[x.id] === x.rec) post(x.id, x.rec); });
+  }
+  function tap(list, label) {
+    flushToast();
+    var batch = list.map(function (x) {
+      if (VERBS.indexOf(x.action) < 0) return null;
+      delete state.reasons[x.id];
+      var rec = { action: x.action, at: new Date().toISOString(), ok: null, token: x.token, held: true };
+      state.sent[x.id] = rec;
+      return { id: x.id, rec: rec };
+    }).filter(Boolean);
+    if (!batch.length) return;
+    toastBatch = batch;
+    render();
+    showToast(label, function () {
+      clearTimeout(toastTimer);
+      batch.forEach(function (x) { if (state.sent[x.id] === x.rec) delete state.sent[x.id]; });
+      toastBatch = null; hideToast(); render();
+    });
+    toastTimer = setTimeout(function () {
+      batch.forEach(function (x) { x.rec.held = false; });
+      flushToast();
+    }, UNDO_MS);
+  }
+  function send(id, action, token) {
+    tap([{ id: id, action: action, token: token }], DONE_WORD[action] || "Sent");
+  }
+  var $toast = null;
+  function showToast(text, onUndo) {
+    if (!$toast) { $toast = h("div.toast", { role: "status" }); document.body.appendChild($toast); }
+    var t = activeTheme();
+    mount($toast, t.renderToast ? t.renderToast({ text: text, onUndo: onUndo }, api) : classic.renderToast({ text: text, onUndo: onUndo }, api));
+    $toast.hidden = false;
+  }
+  function hideToast() { if ($toast) $toast.hidden = true; }
 
   /* ---------- tab choice ---------- */
   function pendingItems() {
@@ -312,15 +348,12 @@
     return pendingItems().filter(function (i) { var r = state.sent[i.id]; return !r || r.ok === false; }).length;
   }
   function pickTab() {
-    var hash = (location.hash || "").replace("#", "");
-    if (TABS.some(function (t) { return t.id === hash; })) { state.tab = hash; return; }
-    if (state.tab) return;
-    if (unsentCount() > 0) { state.tab = "needs"; return; }
-    var saved = store.get(K.tab);
-    state.tab = TABS.some(function (t) { return t.id === saved; }) ? saved : "working";
+    var x = location.hash.replace("#", "");
+    x = OLD_TAB[x] || x;
+    if (!state.tab) state.tab = TABS.some(function (t) { return t.id === x; }) ? x : "today";
   }
   function go(id) {
-    state.tab = id; store.set(K.tab, id);
+    state.tab = id;
     try { history.replaceState(null, "", location.pathname + location.search + "#" + id); } catch (e) { /* none */ }
     render(); window.scrollTo(0, 0);
   }
@@ -334,12 +367,13 @@
     if (state.signin) return;
     $top.hidden = false; $tabs.hidden = false;
     renderTop(); renderTabs();
-    if (!state.snap) {
-      mount($view, h("div.empty", null, state.loading ? "Loading" : (state.error || (state.offline ? "Offline, no saved snapshot" : "No snapshot yet"))));
+    if (!state.snap || theme.pending) {
+      mount($view, h("div.empty", null, state.loading || theme.pending ? "Loading" : (state.error || (state.offline ? "Offline, no saved snapshot" : "No snapshot yet"))));
       return;
     }
-    var fn = { needs: viewNeeds, working: viewWorking, built: viewBuilt, domains: viewDomains, timeline: viewTimeline }[state.tab] || viewWorking;
-    mount($view, fn(state.snap));
+    var t = activeTheme();
+    var fn = { today: "renderToday", lists: "renderLists", activity: "renderActivity", system: "renderSystem" }[state.tab] || "renderToday";
+    mount($view, (t[fn] || classic[fn])(state.snap, api));
   }
 
   function freshness() {
@@ -349,157 +383,277 @@
     return { text: (stale ? "Stale - updated " : "Updated ") + ago(g), stale: stale };
   }
   function renderTop() {
+    var t = activeTheme();
+    if (t.renderTop) { mount($top, t.renderTop(state.snap, api)); return; }
     var f = freshness();
+    var redesigned = true;
     var sub = DEMO ? "Demo" : state.loading ? "Refreshing" : state.offline ? "Offline - last snapshot" : state.error ? "Error: " + state.error : null;
+    var tab = TABS.filter(function (t) { return t.id === state.tab; })[0];
     mount($top,
-      h("div.fresh", null,
-        h("div.fresh-line" + (f.stale ? ".stale" : ""), null, f.text),
-        sub ? h("div.sub", null, sub) : null),
-      h("button.btn.small", { type: "button", on: { click: function () { load(); } } }, "Refresh"));
+      redesigned
+        ? h("div.fresh", null, h("div.top-title", null, tab ? tab.title : ""), sub ? h("div.meta", null, sub) : null)
+        : h("div.fresh", null,
+          h("div.fresh-line" + (f.stale ? ".stale" : ""), null, f.text),
+          sub ? h("div.sub", null, sub) : null),
+      h("button.btn.small.quiet", { type: "button", on: { click: function () { load(); } } }, "Refresh"));
   }
   function renderTabs() {
+    var t = activeTheme();
+    if (t.renderTabs) { mount($tabs, t.renderTabs(state.snap, api)); return; }
     var n = unsentCount();
     mount($tabs, TABS.map(function (t) {
       return h("button.tab" + (state.tab === t.id ? ".on" : ""), {
         type: "button", "aria-current": state.tab === t.id ? "page" : null,
         on: { click: function () { go(t.id); } }
-      }, t.short, t.id === "needs" && n ? h("span.badge", null, " " + n) : null);
+      }, t.short, t.id === "today" && n ? h("span.badge", null, " " + n) : null);
     }));
   }
 
-  /* Needs You */
-  function whyRows(w) {
-    if (!w) return [];
-    if (typeof w === "string") return [["Why", w]];
-    var rows = [];
-    if (w.text) rows.push(["Why", w.text]);
-    if (w.rule) rows.push(["Rule", w.rule]);
-    if (w.watcher) rows.push(["Watcher", w.watcher]);
-    if (w.goal) rows.push(["Goal", w.goal]);
-    if (w.step) rows.push(["Step", w.step]);
-    return rows;
+  /* ---------- shared: words, health, previews ---------- */
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+  function agoWords(v) {
+    var x = d(v); if (!x) return null;
+    var m = Math.max(0, Math.round((Date.now() - x.getTime()) / 60000));
+    if (m < 1) return "just now";
+    if (m < 60) return plural(m, "minute") + " ago";
+    var hr = Math.floor(m / 60), rem = m % 60;
+    if (hr < 24) return plural(hr, "hour") + (rem ? " " + plural(rem, "minute") : "") + " ago";
+    return plural(Math.floor(hr / 24), "day") + " ago";
   }
-  function effectRows(e) {
-    if (!e) return [];
-    return [
-      ["Effect", e.summary || OPS[e.op] || e.op],
+  function shortDay(v) { // Sun Oct 18
+    var x = d(v); if (!x) return "";
+    var o = { timeZone: TZ };
+    return x.toLocaleDateString("en-US", Object.assign({ weekday: "short" }, o)) + " " +
+      x.toLocaleDateString("en-US", Object.assign({ month: "short" }, o)) + " " +
+      x.toLocaleDateString("en-US", Object.assign({ day: "numeric" }, o));
+  }
+  function eventLine(e) {
+    return [e.title, e.start ? shortDay(e.start) : null, e.start ? fmtTime(e.start) : null, e.location]
+      .filter(Boolean).join(", ");
+  }
+  // Exactly what will happen, in one line.
+  function preview(it) {
+    var e = it.effect || {};
+    if (e.preview) return e.preview;
+    if (e.op === "event.copy" || e.op === "event.create") return eventLine(e);
+    if (e.op === "rsvp") return eventLine(e);
+    if (e.op === "gmail.send") {
+      var first = String(e.wording || "").split(/\n/)[0];
+      return (e.recipients && e.recipients.length ? "To " + [].concat(e.recipients).join(", ") + ": " : "") + first;
+    }
+    if (e.op === "task.create") return [e.title, e.due ? "due " + shortDay(e.due + "T12:00:00Z") : null, e.list].filter(Boolean).join(", ");
+    return e.summary || OPS[e.op] || "";
+  }
+  function whyText(w) { return !w ? "" : typeof w === "string" ? w : (w.text || ""); }
+
+  // Problems to know about, newest first. Each: short (fits the health line) + detail.
+  function health(s) {
+    var out = [], today = dayKey(new Date());
+    if (!DEMO && state.offline) out.push({ short: "Offline", detail: "Showing the last saved snapshot" });
+    if (s.generated && minutesOld(s.generated) > STALE_MIN) {
+      out.push({ short: "No update for " + agoWords(s.generated).replace(" ago", ""), detail: "Last report " + fmtTime(s.generated) });
+    }
+    (s.timeline || []).forEach(function (e) {
+      if (dayKey(e.ts) !== today || (e.result !== "failed" && e.result !== "error")) return;
+      var parts = String(e.summary || OPS[e.action] || e.action || "Action failed").split(": ");
+      out.push({ short: parts[0] + " at " + fmtTime(e.ts), detail: parts.slice(1).join(": ") });
+    });
+    ((s.working || {}).paused_generators || []).forEach(function (g) {
+      out.push({ short: (g.label || cap(g.name)) + " suggestions paused", detail: g.reason || "Paused after 3 denials in a row" });
+    });
+    return out;
+  }
+  function healthLine(p, countOnly) {
+    if (!p.length) return h("div.health", null, h("span.shape.ok", { "aria-hidden": "true" }), h("span", null, "All systems normal"));
+    var text = countOnly ? plural(p.length, "problem") : p.length === 1 ? "1 problem: " + p[0].short : p.length + " problems: " + p[0].short + ", and more";
+    return h("div.health.warn", null, h("span.shape.warn", { "aria-hidden": "true" }), h("span", null, text));
+  }
+
+  /* ---------- Needs You ---------- */
+  var ui = { details: {}, addedAll: false, workingDetails: false };
+  function isOpen(it) { var r = state.sent[it.id]; return !r || r.ok === false; }
+  var GROUP_LABEL = { rsvp: "RSVPs", reply: "Replies", followup: "Tasks", task: "Tasks" };
+  function groupOf(it) {
+    if (it.decide_today) return { key: "today", label: "Due today", rank: 0 };
+    var e = it.effect || {};
+    if (it.type === "share") return { key: "share:" + (e.calendar || ""), label: "Share to " + (e.calendar ? e.calendar + " Calendar" : "a calendar"), rank: 1 };
+    return { key: it.type || "other", label: GROUP_LABEL[it.type] || cap(it.type || "Other"), rank: 2 };
+  }
+  function groups(items) {
+    var map = {}, list = [];
+    items.forEach(function (it) {
+      var g = groupOf(it);
+      if (!map[g.key]) { map[g.key] = { key: g.key, label: g.label, rank: g.rank, items: [] }; list.push(map[g.key]); }
+      map[g.key].items.push(it);
+    });
+    list.forEach(function (g) { g.items.sort(function (a, b) { return (a.priority || 9) - (b.priority || 9) || ((d(a.expires) || 0) - (d(b.expires) || 0)); }); });
+    return list.sort(function (a, b) { return a.rank - b.rank || (a.items[0].priority || 9) - (b.items[0].priority || 9); });
+  }
+  function tokenFor(it, a) { return (it.tokens && it.tokens[a]) || it.token || ""; }
+
+  function detailsPanel(it) {
+    var w = typeof it.why === "object" && it.why ? it.why : {};
+    var e = it.effect || {};
+    return h("div.details", null, kv([
+      ["Type", cap(it.type)],
+      ["Does", OPS[e.op] || e.op],
       ["Calendar", e.calendar],
-      ["List", e.list],
+      ["Copies", e.fields],
       ["To", e.recipients],
       ["Subject", e.subject],
-      ["When", e.when_text || (e.start ? fmtWhen(e.start) + (e.end ? " to " + fmtTime(e.end) : "") : null)],
-      ["Where", e.location],
-      ["Title", e.title],
-      ["Due", e.due ? fmtDayOnly(e.due) : null],
-      ["Copies", e.fields],
-      ["Wording", e.wording, "quote"]
-    ];
+      ["Wording", e.wording, "quote"],
+      ["Rule", w.rule],
+      ["Watcher", w.watcher],
+      ["Goal", w.goal],
+      ["Lead", it.lead ? nameOf(it.lead) : null],
+      ["Agent", it.agent ? nameOf(it.agent) : null],
+      ["Priority", it.priority != null ? String(it.priority) : null],
+      ["Expires", it.expires ? fmtWhen(it.expires) : null]
+    ]));
   }
   function needsCard(it) {
     var r = state.sent[it.id];
-    var rows = [["Type", cap(it.type)], ["Lead", nameOf(it.lead)], ["Agent", nameOf(it.agent)]]
-      .concat(effectRows(it.effect)).concat(whyRows(it.why))
-      .concat([["Priority", it.priority != null ? String(it.priority) + (it.decide_today ? " - decide today" : "") : null],
-        ["Expires", it.expires ? fmtWhen(it.expires) : null]]);
-    var body = [st("needs_you"), h("h2", null, it.title), kv(rows)];
     if (r && r.ok !== false) {
-      body = body.concat(sentLines(r));
-      return h("div.card.sent", { "data-id": it.id }, body);
+      return h("div.card.done", { "data-id": it.id },
+        h("span.shape.done", { "aria-hidden": "true" }),
+        h("span", null, (DONE_WORD[r.action] || "Sent") + " - " + applyPhrase(r.at)));
     }
-    if (r && r.ok === false) body.push(h("div.status-line", null, "Not sent - " + r.err));
-    else if (!r && state.reasons[it.id]) body.push(h("div.status-line", null, state.reasons[it.id]));
-    var acts = (it.actions && it.actions.length ? it.actions : ["approve", "deny", "snooze"]).filter(function (a) { return VERBS.indexOf(a) >= 0 && a !== "undo"; });
-    body.push(h("div.actions", null, acts.map(function (a) {
-      var tok = (it.tokens && it.tokens[a]) || it.token || "";
-      return h("button.btn" + (a === "approve" ? ".primary" : a === "snooze" ? ".teal" : ""), {
-        type: "button", on: { click: function () { send(it.id, a, tok); } }
-      }, VERB_LABEL[a]);
-    })));
-    return h("div.card" + (r && r.ok === false ? ".err" : ""), { "data-id": it.id }, body);
+    var open = !!ui.details[it.id];
+    var acts = (it.actions && it.actions.length ? it.actions : ["approve", "deny", "snooze"])
+      .filter(function (a) { return VERBS.indexOf(a) >= 0 && a !== "undo"; });
+    return h("div.card.decide", { "data-id": it.id },
+      h("div.q", null, it.title),
+      h("div.preview", null, preview(it)),
+      whyText(it.why) ? h("div.why", null, whyText(it.why)) : null,
+      r && r.ok === false ? h("div.status-line", null, "Not sent - " + r.err)
+        : state.reasons[it.id] ? h("div.status-line", null, state.reasons[it.id]) : null,
+      h("div.actions", null, acts.map(function (a) {
+        return h("button.btn" + (a === "approve" ? ".primary" : a === "snooze" ? ".teal" : ""), {
+          type: "button", on: { click: function () { send(it.id, a, tokenFor(it, a)); } }
+        }, VERB_LABEL[a]);
+      })),
+      h("button.linkish", { type: "button", "aria-expanded": open ? "true" : "false",
+        on: { click: function () { ui.details[it.id] = !open; render(); } } }, open ? "Hide details" : "Details"),
+      open ? detailsPanel(it) : null);
   }
-  function addedCard(it) {
+  function groupBlock(g) {
+    var openItems = g.items.filter(function (it) { return isOpen(it) && (!it.actions || it.actions.indexOf("approve") >= 0); });
+    var head = h("div.group-head", null, h("div.section-label", null, g.label),
+      g.key !== "today" && openItems.length > 1
+        ? h("button.btn.small.batch", { type: "button", on: { click: function () {
+          tap(openItems.map(function (it) { return { id: it.id, action: "approve", token: tokenFor(it, "approve") }; }),
+            "Approved " + openItems.length);
+        } } }, "Approve all " + openItems.length)
+        : null);
+    return h("section.group", null, head, g.items.map(needsCard));
+  }
+  function addedRow(it) {
     var r = state.sent[it.id];
-    var rows = [["Lead", nameOf(it.lead)], ["Agent", nameOf(it.agent)], ["Added", it.at ? fmtTime(it.at) : null],
-      ["Undo until", it.undo_until ? fmtWhen(it.undo_until) : null]];
-    var body = [h("div", null, it.title), kv(rows)];
     if (r && r.ok !== false) {
-      body = body.concat(sentLines(r));
-      return h("div.card.sent", null, body);
+      return h("li.done", null, h("span.grow.ell", null, (DONE_WORD[r.action] || "Sent") + " - " + applyPhrase(r.at)));
     }
-    if (r && r.ok === false) body.push(h("div.status-line", null, "Not sent - " + r.err));
     var expired = it.undo_until && minutesOld(it.undo_until) > 0;
-    if (it.undo_token && !expired) {
-      body.push(h("div.actions", null, h("button.btn.small", {
-        type: "button", on: { click: function () { send(it.id, "undo", it.undo_token); } }
-      }, "Undo")));
-    }
-    return h("div.card", null, body);
+    return h("li", null,
+      h("span.grow.ell", null, it.title),
+      r && r.ok === false ? h("span.right", null, "Not sent") : null,
+      it.undo_token && !expired ? h("button.btn.small.quiet", { type: "button",
+        on: { click: function () { send(it.id, "undo", it.undo_token); } } }, "Undo") : null);
   }
   function viewNeeds(s) {
-    var items = pendingItems().slice().sort(function (a, b) {
-      return (a.decide_today ? 0 : 1) - (b.decide_today ? 0 : 1) || (a.priority || 9) - (b.priority || 9);
-    });
-    var added = s.added_today || [];
-    var n = unsentCount();
-    var ti = tickInfo();
+    var items = pendingItems();
+    var open = items.filter(isOpen);
+    var due = open.filter(function (it) { return it.decide_today; }).length;
+    var mins = Math.ceil(open.length * 20 / 60);
+    var added = (s.added_today || []).slice().sort(function (a, b) { return (d(b.at) || 0) - (d(a.at) || 0); });
+    var shown = ui.addedAll ? added : added.slice(0, 3);
     return [
-      h("h1", null, "Needs You"),
-      h("div.count", null, n + " pending" + (items.length - n ? ", " + (items.length - n) + " sent" : "")),
-      h("div.note", null, "Taps apply on the next tick; after " + clock(ti.lastEvening) + ", in the morning"),
-      items.length ? items.map(needsCard) : h("div.empty", null, "Nothing pending"),
-      h("h3", null, "Added today"),
-      added.length ? added.map(addedCard) : h("div.empty", null, "Nothing added today")
+      h("div.panel.today", null,
+        h("div.big", null, open.length ? plural(open.length, "decision") : "Nothing to decide"),
+        open.length ? h("div", null, "About " + plural(mins, "minute")) : null,
+        open.length ? h("div", null, due ? due + " due today" : "None due today") : null,
+        healthLine(health(s))),
+      items.length ? groups(items).map(groupBlock) : null,
+      h("section.group", null,
+        h("div.group-head", null, h("div.section-label", null, "Added today")),
+        added.length
+          ? h("div.panel", null, h("ul.compact", null, shown.map(addedRow)),
+            added.length > 3 ? h("button.linkish", { type: "button", on: { click: function () { ui.addedAll = !ui.addedAll; render(); } } },
+              ui.addedAll ? "Show fewer" : "Show " + (added.length - 3) + " more") : null)
+          : h("div.panel.empty-line", null, "Nothing added yet"))
     ];
   }
 
-  /* Otto working */
-  function viewWorking(s) {
-    var t = s.tick || {}, w = s.working || {};
-    var f = freshness();
-    var states = (w.agent_states || []);
-    var gates = s.gates || [];
-    var ks = s.kill_switch;
-    var ti = tickInfo();
+  /* ---------- Working ---------- */
+  function todayCounts(s) {
+    var t = (s.working || {}).today;
+    if (!t) {
+      var today = dayKey(new Date());
+      t = { tasks: 0, events: 0, pushes: 0, approvals: 0 };
+      (s.timeline || []).forEach(function (e) {
+        if (dayKey(e.ts) !== today || e.result !== "ok") return;
+        if (e.action === "task.create") t.tasks++;
+        else if (e.action === "event.copy" || e.action === "event.create") t.events++;
+        else if (e.action === "notify.push") t.pushes++;
+        else if (e.action === "approve") t.approvals++;
+      });
+    }
     return [
-      h("h1", null, "Otto working"),
-      h("div.card", null, kv([
-        ["Snapshot", f.text],
-        ["Last tick", t.last ? fmtWhen(t.last) : null],
+      t.tasks ? "Filed " + plural(t.tasks, "task") : null,
+      t.events ? "Filed " + plural(t.events, "event") : null,
+      t.pushes ? "Sent " + plural(t.pushes, "push", "pushes") : null,
+      t.approvals ? plural(t.approvals, "approval") : null
+    ].filter(Boolean);
+  }
+  function inventory(s) {
+    var t = s.tick || {}, w = s.working || {}, ti = tickInfo();
+    var states = w.agent_states || [], gates = s.gates || [], ks = s.kill_switch;
+    return h("div.details.inventory", null,
+      kv([
+        ["Last tick", t.last ? fmtTime(t.last) : null],
         ["Cadence", ti.cadence + " min"],
-        ["Evening", "Last tick " + clock(ti.lastEvening)],
-        ["Morning", "First tick " + clock(ti.firstMorning)],
+        ["Ticks run", clock(ti.firstMorning) + " to " + clock(ti.lastEvening)],
         ["Time to clear", w.time_to_clear_7d_min != null ? w.time_to_clear_7d_min + " min, 7-day average" : null],
-        ["Flex days", w.flex_used_7d != null ? w.flex_used_7d + " of " + (w.flex_max_7d || 2) + " this week" : null]
-      ])),
-      h("h3", null, "Ran this tick"),
-      h("div.card", null, (t.ran_this_tick || []).length
-        ? h("ul.list", null, t.ran_this_tick.map(function (a) { return h("li", null, h("span.grow", null, nameOf(a))); }))
-        : h("div.empty", null, "Nothing")),
-      h("h3", null, "Ran today"),
-      h("div.card", null, (t.ran_today || []).length
-        ? h("ul.list", null, t.ran_today.map(function (a) {
-          var id = typeof a === "string" ? a : a.agent;
-          return h("li", null, h("span.grow", null, nameOf(id)), a.runs != null ? h("span.right", null, a.runs + (a.runs === 1 ? " run" : " runs")) : null);
-        }))
-        : h("div.empty", null, "Nothing")),
-      h("h3", null, "Active workers"),
-      h("div.card", null, (w.workers || []).length
-        ? h("ul.list", null, w.workers.map(function (x) {
-          return h("li", null, st("running", ""), h("span.grow", null, nameOf(x.id) + (x.task ? " - " + x.task : "")),
-            x.since ? h("span.right", null, fmtTime(x.since)) : null);
-        }))
-        : h("div.empty", null, "None")),
-      h("h3", null, "Agents"),
-      legend(states.map(function (x) { return x.state; }).concat((w.workers || []).length ? ["running"] : [])),
-      h("div.card", null, h("ul.list", null, states.map(function (x) {
+        ["Flex days", w.flex_used_7d != null ? w.flex_used_7d + " of " + (w.flex_max_7d || 2) + " this week" : null],
+        ["Memory", ks ? (ks.on ? "On" : "Off") : null]
+      ]),
+      h("div.sub-label", null, "Ran today"),
+      h("ul.list", null, (t.ran_today || []).map(function (a) {
+        var id = typeof a === "string" ? a : a.agent;
+        return h("li", null, h("span.grow", null, nameOf(id)), a.runs != null ? h("span.right", null, plural(a.runs, "run")) : null);
+      })),
+      h("div.sub-label", null, "Agents"),
+      h("ul.list", null, states.map(function (x) {
         return h("li", null, h("span.grow", null, x.name || nameOf(x.id)), st(x.state));
-      }))),
-      h("h3", null, "Gates"),
-      legend(gates.map(function (g) { return g.state; })),
-      h("div.card", null, h("ul.list", null, gates.map(function (g) {
+      })),
+      h("div.sub-label", null, "Gates"),
+      h("ul.list", null, gates.map(function (g) {
         return h("li", null, h("span.grow", null, g.name), st(g.state));
-      }).concat(ks ? [h("li", null, h("span.grow", null, ks.name), h("span.right", null, ks.on ? "Memory on" : "Memory off"))] : []))),
-      h("div.note", null, "Read-only")
+      })));
+  }
+  function viewWorking(s) {
+    var p = health(s), counts = todayCounts(s), w = s.working || {}, ti = tickInfo();
+    var next = null, last = d((s.tick || {}).last);
+    if (last) { next = new Date(last.getTime()); while (next <= new Date()) next = new Date(next.getTime() + ti.cadence * 60000); }
+    return [
+      h("div.panel.today", null,
+        healthLine(p, true),
+        p.length ? h("ul.problems", null, p.map(function (x) {
+          return h("li", null, h("div", null, x.short), x.detail ? h("div.meta", null, x.detail) : null);
+        })) : null),
+      h("section.group", null,
+        h("div.group-head", null, h("div.section-label", null, "Today")),
+        h("div.panel", null, counts.length ? counts.map(function (c) { return h("div.line", null, c); }) : h("div.line", null, "Nothing filed yet"),
+          (w.workers || []).map(function (x) { return h("div.line", null, st("running", "Now: " + (x.task || nameOf(x.id)))); }))),
+      h("section.group", null,
+        h("div.group-head", null, h("div.section-label", null, "Last update")),
+        h("div.panel", null,
+          h("div.line", null, cap(agoWords(s.generated) || "No update yet")),
+          next ? h("div.line.meta", null, "Next check about " + fmtTime(next)) : null)),
+      h("section.group", null,
+        h("button.linkish.disclose", { type: "button", "aria-expanded": ui.workingDetails ? "true" : "false",
+          on: { click: function () { ui.workingDetails = !ui.workingDetails; render(); } } },
+          ui.workingDetails ? "Hide details" : "Details"),
+        ui.workingDetails ? inventory(s) : null)
     ];
   }
 
@@ -529,37 +683,29 @@
     ];
   }
 
-  /* Life domains */
-  function viewDomains(s) {
-    var doms = s.domains || [], cl = s.clinical;
-    var used = [];
-    doms.forEach(function (dm) { (dm.watchers || []).forEach(function (w) { used.push(w.state); }); });
-    var out = [h("h1", null, "Life domains")];
-    if (used.length) out.push(legend(used));
-    if (cl) {
-      out.push(h("div.card", null, h("h2", null, "Clinical"), kv([
-        ["Events today", cl.events_today == null ? "not read" : String(cl.events_today)],
-        ["Times", cl.times || []]
-      ])));
-    }
-    doms.forEach(function (dm) {
-      var goals = dm.goals || [], watchers = dm.watchers || [], dates = (dm.dates || []).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-      out.push(h("div.card", null,
-        h("h2", null, dm.name),
-        kv([["Owner", dm.owner_name || nameOf(dm.owner || dm.id)]]),
-        h("h3", null, "Goals"),
-        goals.length ? goals.map(function (g) {
-          return h("div", null, h("div", null, g.title),
-            (g.next || []).length ? h("ul.list", null, g.next.map(function (n) { return h("li", null, h("span.grow", null, "Next: " + n)); })) : null);
-        }) : h("div.empty", null, "None"),
-        h("h3", null, "Watchers"),
-        watchers.length ? h("ul.list", null, watchers.map(function (w) {
-          return h("li", null, h("span.grow", null, w.title), st(w.state));
-        })) : h("div.empty", null, "None"),
-        h("h3", null, "Upcoming"),
-        dates.length ? h("ul.list", null, dates.map(function (x) {
-          return h("li", null, h("span.grow", null, x.title), h("span.right", null, fmtDayOnly(x.date)));
-        })) : h("div.empty", null, "None")));
+  /* Lists: Google Tasks, one section per list in routing order */
+  var LIST_SHOW = 5;
+  function taskLists(s) {
+    var t = s.tasks || {};
+    return { connected: t.connected === true, lists: (t.lists || []).filter(function (l) { return l && l.name; }) };
+  }
+  function listToggle(key) { ui.listOpen = ui.listOpen || {}; ui.listOpen[key] = !ui.listOpen[key]; render(); }
+  function listShown(l) { var all = l.items || []; return (ui.listOpen || {})[l.key] ? all : all.slice(0, LIST_SHOW); }
+  function viewLists(s) {
+    var tl = taskLists(s), out = [h("h1", null, "Lists")];
+    if (!tl.connected) { out.push(h("div.empty", null, "Tasks not connected")); return out; }
+    tl.lists.forEach(function (l) {
+      var items = l.items || [], n = +l.count || 0, c = +l.clinical || 0;
+      if (!n && !c) { out.push(h("div.card", null, h("h2", null, l.name + " - " + (l.error ? "not read" : "empty")))); return; }
+      out.push(h("div.card", null, h("h2", null, l.name + " - " + n + " open"),
+        h("ul.list", null, listShown(l).map(function (x) {
+          return h("li", null, h("span.grow", null, x.title + (x.due_text ? ", due " + x.due_text : "")),
+            x.otto ? h("span.right", null, "Otto") : null,
+            x.undo_item && x.undo_token ? h("button.btn.small.quiet", { type: "button", on: { click: function () { send(x.undo_item, "undo", x.undo_token); } } }, "Undo") : null);
+        })),
+        items.length > LIST_SHOW ? h("button.btn.small.quiet", { type: "button", on: { click: function () { listToggle(l.key); } } },
+          (ui.listOpen || {})[l.key] ? "Show fewer" : "Show " + (items.length - LIST_SHOW) + " more") : null,
+        c ? h("div.meta", null, plural(c, "clinical task")) : null));
     });
     return out;
   }
@@ -580,10 +726,204 @@
     return out;
   }
 
+  /* ---------- shared data helpers for themes ---------- */
+  var TYPE_LABEL = { rsvp: "RSVP", share: "Calendar share", reply: "Reply", followup: "Task", task: "Task", task_create: "Task" };
+  function typeLabel(it) { return TYPE_LABEL[it.type] || cap(String(it.type || "Item").replace(/_/g, " ")); }
+  function areaOf(it) { return it.area || ""; }
+  // Which preview a decision gets: a mini calendar card, the full reply text, or one line.
+  function previewKind(it) {
+    var op = (it.effect || {}).op;
+    if (op === "event.copy" || op === "event.create" || op === "rsvp") return "event";
+    if (op === "gmail.send") return "reply";
+    return "line";
+  }
+  // Calendar preview: day, date, title, time, place. The event start wins (the demo moves
+  // to today); the effect's own day/date/time/place fields are the fallback.
+  function calPreview(it) {
+    var e = it.effect || {}, x = d(e.start), o = { timeZone: TZ };
+    var time = x ? fmtTime(x) + (d(e.end) ? " to " + fmtTime(e.end) : "") : (e.time || "");
+    return {
+      day: x ? x.toLocaleDateString("en-US", Object.assign({ weekday: "short" }, o)) : (e.day || ""),
+      month: x ? x.toLocaleDateString("en-US", Object.assign({ month: "short" }, o)) : String(e.date || "").split(" ")[0],
+      num: x ? x.toLocaleDateString("en-US", Object.assign({ day: "numeric" }, o)) : String(e.date || "").split(" ").pop(),
+      date: x ? shortDay(x).replace(/^\w+ /, "") : (e.date || ""),
+      title: e.title || it.title || "",
+      time: time,
+      place: e.location || e.place || "",
+      calendar: e.calendar || "",
+      response: e.response || ""
+    };
+  }
+  function replyPreview(it) {
+    var e = it.effect || {};
+    return { to: [].concat(e.recipients || []).join(", "), subject: e.subject || "", text: String(e.wording || "") };
+  }
+  function openItems() { return pendingItems().filter(isOpen); }
+  function minutesToClear(n) { return n ? Math.ceil(n * 20 / 60) : 0; }
+  function doneToday(s) {
+    var t = (s.working || {}).today || {}, cleared = 0;
+    pendingItems().forEach(function (i) { var r = state.sent[i.id]; if (r && r.ok !== false) cleared++; });
+    return (s.added_today || []).length + (+t.approvals || 0) + cleared;
+  }
+  function handled(s) { return (s.added_today || []).slice().sort(function (a, b) { return (d(b.at) || 0) - (d(a.at) || 0); }); }
+  function undoable(it) { return !!(it.undo_token && !(it.undo_until && minutesOld(it.undo_until) > 0)); }
+  function nextCheck(s) {
+    var ti = tickInfo(), last = d((s.tick || {}).last), next = null;
+    if (last) { next = new Date(last.getTime()); while (next <= new Date()) next = new Date(next.getTime() + ti.cadence * 60000); }
+    return next;
+  }
+  // Demo-only series and team fields (absent in live snapshots: themes must handle null).
+  function series(s) {
+    var w = s.working || {};
+    return {
+      timeToClear: w.time_to_clear_series_7d || null,
+      teamsNow: w.teams_now || (w.workers || []).map(function (x) { return { id: x.id, name: nameOf(x.id), task: x.task }; }),
+      teamToday: w.team_today || null,
+      sleep: s.sleep || null
+    };
+  }
+  // Last 7 day labels ending today, oldest first: ["Sun", ..., "Sat"].
+  function lastDays(n) {
+    var out = [], now = Date.now();
+    for (var i = n - 1; i >= 0; i--) out.push(new Date(now - i * 86400000).toLocaleDateString("en-US", { timeZone: TZ, weekday: "short" }));
+    return out;
+  }
+  function stateIds(s) {
+    var org = s.org || {}, used = [];
+    (org.departments || []).forEach(function (dp) { used.push(dp.lead_state); (dp.members || []).forEach(function (m) { used.push(m.state); }); });
+    (org.domains || []).forEach(function (dm) { used.push(dm.owner_state); });
+    (s.gates || []).forEach(function (g) { used.push(g.state); });
+    return used;
+  }
+
+  /* ---------- themes ----------
+     A theme is { label, standalone?, renderToday, renderLists, renderActivity, renderSystem,
+     renderToast, renderTop?, renderTabs? }. Each render function gets (snapshot, api) and
+     returns a node, a list of nodes or text. It never fetches or writes; taps go through
+     api.send / api.tap. CSS: themes/<name>.css. Template: themes/<name>.js calling
+     OttoHome.register("<name>", theme). List: themes/list.js. */
+  var registry = {};
+  var THEME_LIST = (window.OTTO_THEMES || []).filter(function (x) { return x && /^[a-z0-9-]+$/.test(x.id); });
+  var theme = { name: "classic", pending: false };
+  function activeTheme() { return (!theme.pending && registry[theme.name]) || classic; }
+  function knownTheme(n) { return n === "classic" || THEME_LIST.some(function (x) { return x.id === n; }); }
+  // Production always runs the default look (the first in themes/list.js); only ?demo=1
+  // may pick another, by ?theme= or the Look picker.
+  function wantedTheme() {
+    var def = (THEME_LIST[0] && THEME_LIST[0].id) || "classic";
+    if (!DEMO) return def;
+    var n = params.get("theme") || store.get(THEME_KEY) || def;
+    return knownTheme(n) ? n : "classic";
+  }
+  function needsOf(n) {
+    var e = THEME_LIST.filter(function (x) { return x.id === n; })[0];
+    return ((e && e.needs) || []).filter(function (x) { return /^[a-z0-9-]+$/.test(x); });
+  }
+  function baseCss(on) { var l = document.getElementById("base-css"); if (l) l.disabled = !on; }
+  function applyTheme() {
+    var t = activeTheme();
+    document.documentElement.setAttribute("data-theme", registry[theme.name] && !theme.pending ? theme.name : "classic");
+    baseCss(!(t.standalone && !state.signin));
+    if (t.themeColor) { var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", t.themeColor); }
+  }
+  function loadTheme(n) {
+    theme.name = n;
+    if (n === "classic" || registry[n]) { theme.pending = false; applyTheme(); return; }
+    theme.pending = true;
+    var done = false;
+    function finish() {
+      if (done) return; done = true;
+      theme.pending = false;
+      if (!registry[n]) theme.name = "classic";
+      applyTheme(); if (!state.signin) render();
+    }
+    // Helper modules ("needs") first, then the theme: css in order, scripts one by one.
+    var files = needsOf(n).concat([n]);
+    files.forEach(function (f) {
+      var css = document.createElement("link");
+      css.rel = "stylesheet"; css.href = "themes/" + f + ".css";
+      document.head.appendChild(css);
+    });
+    (function next(i) {
+      var js = document.createElement("script");
+      js.src = "themes/" + files[i] + ".js";
+      js.onload = js.onerror = function () { if (i + 1 < files.length) next(i + 1); else finish(); };
+      document.head.appendChild(js);
+    })(0);
+    setTimeout(finish, 4000);
+  }
+  function setTheme(n) {
+    if (!knownTheme(n)) return;
+    if (DEMO) store.set(THEME_KEY, n);
+    var q = new URLSearchParams(location.search); q.set("theme", n);
+    location.search = q.toString();
+  }
+  function themeChoices() {
+    return [{ id: "classic", label: "Classic", note: "The original light look" }].concat(THEME_LIST.map(function (x) {
+      return { id: x.id, label: x.label || cap(x.id), note: x.note || "" };
+    }));
+  }
+  // Generic Look picker; themes may style .look or build their own from api.themeChoices().
+  function lookPicker() {
+    if (!DEMO) return null;
+    return h("section.look", { "aria-label": "Look" },
+      h("div.look-head", null, "Look"),
+      h("div.look-list", null, themeChoices().map(function (x) {
+        var on = x.id === theme.name;
+        return h("button.look-item" + (on ? ".on" : ""), { type: "button", "aria-pressed": on ? "true" : "false",
+          on: { click: function () { setTheme(x.id); } } },
+          h("span.look-name", null, (on ? "Current: " : "") + x.label),
+          x.note ? h("span.look-note", null, x.note) : null);
+      })));
+  }
+
+  /* The built-in theme: the original light look, now on four tabs. Also the fallback
+     whenever a theme file is missing or fails to load. */
+  var classic = {
+    label: "Classic",
+    renderToday: function (s) { return viewNeeds(s); },
+    renderLists: function (s) { return viewLists(s); },
+    renderActivity: function (s) { return viewTimeline(s); },
+    renderSystem: function (s) { return [viewWorking(s), h("div.group"), viewBuilt(s), lookPicker()]; },
+    renderToast: function (t) {
+      return [h("span.toast-text", null, t.text),
+        h("button.toast-undo", { type: "button", on: { click: t.onUndo } }, "Undo")];
+    }
+  };
+
+  // Everything a theme may use. Read-only views over state plus the two write paths.
+  var api = {
+    DEMO: DEMO, TZ: TZ, TABS: TABS, VERB_LABEL: VERB_LABEL, DONE_WORD: DONE_WORD, OPS: OPS, STATES: STATES,
+    h: h, add: add, mount: mount,
+    d: d, fmtTime: fmtTime, fmtDay: fmtDay, fmtDayOnly: fmtDayOnly, fmtWhen: fmtWhen, shortDay: shortDay,
+    dayKey: dayKey, ago: ago, agoWords: agoWords, minutesOld: minutesOld, cap: cap, plural: plural,
+    nameOf: nameOf, clock: clock, tickInfo: tickInfo, nextCheck: nextCheck, freshness: freshness,
+    st: st, legend: legend, kv: kv,
+    health: health, healthLine: healthLine, todayCounts: todayCounts,
+    preview: preview, previewKind: previewKind, calPreview: calPreview, replyPreview: replyPreview,
+    whyText: whyText, typeLabel: typeLabel, areaOf: areaOf, groups: groups, groupOf: groupOf,
+    pendingItems: pendingItems, openItems: openItems, isOpen: isOpen, unsentCount: unsentCount,
+    minutesToClear: minutesToClear, doneToday: doneToday, handled: handled, undoable: undoable,
+    series: series, lastDays: lastDays, stateIds: stateIds,
+    taskLists: taskLists, listShown: listShown, listToggle: listToggle, LIST_SHOW: LIST_SHOW,
+    snap: function () { return state.snap; },
+    sent: function (id) { return state.sent[id] || null; },
+    reason: function (id) { return state.reasons[id] || null; },
+    applyPhrase: applyPhrase, tokenFor: tokenFor,
+    send: send, tap: tap, refresh: function () { return load(); },
+    go: go, tab: function () { return state.tab; }, render: function () { render(); },
+    ui: ui, themeName: function () { return theme.name; }, themeChoices: themeChoices, setTheme: setTheme,
+    lookPicker: lookPicker
+  };
+  window.OttoHome = {
+    register: function (name, impl) { if (/^[a-z0-9-]+$/.test(name) && impl) registry[name] = impl; }
+  };
+
   /* ---------- sign-in ---------- */
   function showSignIn(msg) {
     state.signin = true;
     $top.hidden = true; $tabs.hidden = true;
+    applyTheme();
     var exec = h("input", { id: "exec", type: "url", inputmode: "url", autocomplete: "off", autocapitalize: "off", spellcheck: "false", required: true, value: store.get(K.exec) || "" });
     var key = h("input", { id: "key", type: "password", autocomplete: "off", autocapitalize: "off", spellcheck: "false", required: true });
     var note = h("div.msg", null, msg || "");
@@ -600,7 +940,7 @@
           if (j && j.error && j.error !== "no_snapshot") { mount(note, "Error: " + j.error); return; }
           if (store.get(K.exec) !== u || store.get(K.key) !== k) { store.del(K.snap); store.del(K.sent); state.sent = {}; }
           if (!store.set(K.exec, u) || !store.set(K.key, k)) { mount(note, "This browser will not save the key"); return; }
-          state.signin = null; state.snap = valid(j) ? j : null;
+          state.signin = null; state.snap = valid(j) ? j : null; applyTheme();
           if (state.snap) store.set(K.snap, JSON.stringify(j));
           pickTab(); render();
         })
@@ -619,7 +959,8 @@
   if ("serviceWorker" in navigator) {
     try { navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(function () {}); } catch (e) { /* none */ }
   }
-  window.addEventListener("hashchange", function () { var x = location.hash.replace("#", ""); if (TABS.some(function (t) { return t.id === x; })) { state.tab = x; render(); } });
+  window.addEventListener("hashchange", function () { var x = location.hash.replace("#", ""); x = OLD_TAB[x] || x; if (TABS.some(function (t) { return t.id === x; })) { state.tab = x; render(); } });
+  loadTheme(wantedTheme());
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible" && !state.signin && !DEMO) load();
   });

@@ -1,15 +1,19 @@
 /* Otto Home service worker. Caches the shell only; never data.
    Shell: stale-while-revalidate, so the app opens offline and updates on the next open.
    Anything else (sample-snapshot.json, the /exec URL on another origin) goes to the network untouched. */
-var CACHE = "otto-home-shell-v2";
+var CACHE = "otto-home-shell-v7";
+// Exactly the deployed files (scripts/deploy_otto_home.sh SHELL_FILES) but sw.js, plus "./".
 var SHELL = [
   "./", "index.html", "app.js", "styles.css", "manifest.webmanifest",
-  "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png"
+  "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
+  "themes/list.js", "themes/combined.css", "themes/combined.js", "themes/network.css", "themes/network.js"
 ];
 var SHELL_URLS = SHELL.map(function (p) { return new URL(p, self.registration.scope).href; });
 
 self.addEventListener("install", function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(caches.open(CACHE).then(function (c) {
+    return c.addAll(SHELL);
+  }).then(function () { return self.skipWaiting(); }));
 });
 
 self.addEventListener("activate", function (e) {
