@@ -10,7 +10,7 @@
   "use strict";
   if (!window.OttoHome) return;
 
-  var ui = { inbox: "needs", list: "All", map: false, past: false };
+  var ui = { list: "All", map: false, past: false };
 
   /* ---------- small helpers ---------- */
   // Status = shape + word, always, with a legend on every tab.
@@ -19,7 +19,8 @@
     live: { word: "Live" }, ok: { word: "OK" }, run: { word: "Running" }, dry: { word: "Dry run" },
     dark: { word: "Off" }, wait: { word: "Needs you" }, late: { word: "Late" }
   };
-  var STATE_KIND = { live: "live", running: "run", dry_run: "dry", dark: "dark", dormant: "dark", late: "late", needs_you: "wait" };
+  var STATE_KIND = { live: "live", running: "run", dry_run: "dry", dark: "dark", dormant: "dark", manual: "dark", late: "late", needs_you: "wait" };
+  var STATE_WORD = { live: "On schedule", late: "Late", manual: "Manual", dark: "No run yet" };
   var VERB_WORD = { approve: "Approve", deny: "Deny", snooze: "Later" };
   function shape(api, kind) { return api.h("span.v-shape.v-" + kind, { "aria-hidden": "true" }); }
   function status(api, kind, word) {
@@ -33,7 +34,7 @@
         status(api, "wait", "Waiting on you, late or overdue"),
         status(api, "run", "Working now"),
         status(api, "dry", "Dry run"),
-        status(api, "dark", "Off or no run yet")));
+        status(api, "dark", "Manual, off or no run yet")));
   }
   function card(api, label, right, body, extra) {
     return api.h("section.v-card" + (extra || ""), null,
@@ -63,11 +64,91 @@
   function nowMs() { return Date.now(); }
   function ord(n, node) { if (node && node.style) node.style.order = n; return node; }
 
+  /* ---------- schedules: the snapshot carries each agent's cron lines (UTC, as the VM
+     runs them); the next run is computed here against this device's clock, so a snapshot
+     read later never shows a next run that already went by. ---------- */
+  var CRON_RANGE = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
+  function cronField(spec, lo, hi) {
+    if (spec === "*") return null;
+    var out = {};
+    spec.split(",").forEach(function (part) {
+      var bits = part.split("/"), rng = bits[0], step = bits[1] ? +bits[1] : 1, a, b;
+      if (rng === "*") { a = lo; b = hi; }
+      else if (rng.indexOf("-") >= 0) { a = +rng.split("-")[0]; b = +rng.split("-")[1]; }
+      else { a = +rng; b = bits[1] ? hi : a; }
+      for (var x = a; x <= b; x += step) out[hi === 6 && x === 7 ? 0 : x] = 1;
+    });
+    return out;
+  }
+  function cronSpecs(lines) {
+    return (lines || []).map(function (ln) {
+      var f = String(ln).split(/\s+/);
+      if (f.length !== 5) return null;
+      return f.map(function (x, i) { return cronField(x, CRON_RANGE[i][0], CRON_RANGE[i][1]); });
+    }).filter(Boolean);
+  }
+  function has(set, v) { return set === null || !!set[v]; }
+  function firesOn(sp, day) { // day: a Date at 00:00 UTC
+    if (!has(sp[3], day.getUTCMonth() + 1)) return false;
+    var domOk = has(sp[2], day.getUTCDate()), dowOk = has(sp[4], day.getUTCDay());
+    return sp[2] !== null && sp[4] !== null ? domOk || dowOk : domOk && dowOk;
+  }
+  function list(set, lo, hi) { var o = []; for (var x = lo; x <= hi; x++) if (has(set, x)) o.push(x); return o; }
+  function nextFire(lines, fromMs) {
+    var specs = cronSpecs(lines), best = null, base = Math.floor(fromMs / 60000) * 60000;
+    specs.forEach(function (sp) {
+      var hrs = list(sp[1], 0, 23), mins = list(sp[0], 0, 59);
+      for (var n = 0; n < 9; n++) {
+        var d0 = new Date(Math.floor(base / 86400000) * 86400000 + n * 86400000);
+        if (!firesOn(sp, d0)) continue;
+        var hit = null;
+        for (var i = 0; i < hrs.length && !hit; i++) for (var j = 0; j < mins.length; j++) {
+          var t = d0.getTime() + hrs[i] * 3600000 + mins[j] * 60000;
+          if (t > base) { hit = t; break; }
+        }
+        if (hit) { if (best === null || hit < best) best = hit; break; }
+      }
+    });
+    return best === null ? null : new Date(best);
+  }
+  function daily(lines) { // "Daily at 6:41 AM" for one fixed time every day, else null
+    var sp = cronSpecs(lines);
+    if (sp.length !== 1 || sp[0][2] !== null || sp[0][3] !== null || sp[0][4] !== null) return null;
+    var h = list(sp[0][1], 0, 23), m = list(sp[0][0], 0, 59);
+    return h.length === 1 && m.length === 1 ? { h: h[0], m: m[0] } : null;
+  }
+  // Always a 12-hour time; a short day word when not today: "2:13 PM", "Sun 6:41 AM",
+  // "Oct 5 6:00 AM" beyond a week. Short enough for an agent row at 18px on a phone.
+  function whenLabel(api, v) {
+    var x = api.d(v);
+    if (!x) return "";
+    var k = api.dayKey(x), t = api.fmtTime(x);
+    if (k === todayKey(api)) return t;
+    for (var n = -6; n <= 6; n++) {
+      if (k === keyPlus(api, n)) return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short" }) + " " + t;
+    }
+    return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }) + " " + t;
+  }
+  function dayWord(api, v) {
+    var x = api.d(v);
+    if (!x) return "";
+    var k = api.dayKey(x);
+    if (k === todayKey(api)) return "today";
+    if (k === keyPlus(api, 1)) return "tomorrow";
+    return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long" });
+  }
+  function agentNext(x) { return x.cron ? nextFire(x.cron, nowMs()) : (x.next_at ? new Date(x.next_at) : null); }
+
   /* ---------- the day anchor every non-Today tab leads with ---------- */
   function upcoming(api, s) {
     var ev = ((s.today || {}).events || []).filter(function (e) { var x = api.d(e.start); return !e.all_day && x && x.getTime() > nowMs(); });
     ev.sort(function (a, b) { return api.d(a.start) - api.d(b.start); });
     return ev;
+  }
+  function stripStat(api, label, n, amber) {
+    return api.h("div.v-strip-stat", null,
+      api.h("span.v-strip-l", null, amber ? status(api, "wait", label) : label),
+      api.h("span.v-strip-n.v-num" + (amber ? ".v-amber" : ""), null, String(n)));
   }
   function dayStrip(api, s) {
     if (!on(s.today) && !on(s.due)) return null;
@@ -79,14 +160,8 @@
           api.h("span.v-strip-t.v-num", null, api.fmtTime(e.start)),
           api.h("span.v-strip-x", null, e.title));
       }),
-      on(s.due) ? api.h("div.v-strip-row", null,
-        api.h("span.v-strip-k", null, "Tasks"),
-        api.h("span.v-strip-t.v-num", null, String(g.today.length)),
-        api.h("span.v-strip-x", null, "Due today")) : null,
-      g.overdue.length ? api.h("div.v-strip-row", null,
-        api.h("span.v-strip-k", null, ""),
-        api.h("span.v-strip-t.v-num.v-amber", null, String(g.overdue.length)),
-        api.h("span.v-strip-x", null, status(api, "wait", "Overdue"))) : null);
+      on(s.due) ? stripStat(api, "Due today", g.today.length) : null,
+      on(s.due) && g.overdue.length ? stripStat(api, "Overdue", g.overdue.length, true) : null);
   }
 
   /* ---------- Today: glance tiles (a tile without a source is left out) ---------- */
@@ -100,12 +175,26 @@
     var w = s.weather, r = s.recovery, sp = s.sports, t = s.truck, tiles = [];
     if (on(w) && w.hi != null) tiles.push(tile(api, "Weather", w.hi + "° / " + w.lo + "°", [w.sky, w.wind, w.rain]));
     if (on(r) && r.recovery_pct != null) tiles.push(tile(api, "Recovery", r.recovery_pct + "%", [r.hrv != null ? "HRV " + r.hrv : null, r.sleep_text ? "Sleep " + r.sleep_text : null, r.rhr != null ? "RHR " + r.rhr : null]));
-    if (on(sp)) {
-      tiles.push(sp.game ? tile(api, "Game today", sp.game.headline, [api.fmtTime(sp.game.time), sp.game.channel ? "On " + sp.game.channel : null], ".v-tile-text")
-        : tile(api, "Game today", "None", ["No " + (sp.team || "team") + " game today"], ".v-tile-text"));
+    if (on(sp) && sp.game) {
+      tiles.push(tile(api, "Game today", sp.game.headline, [api.fmtTime(sp.game.time), sp.game.channel ? "On " + sp.game.channel : null], ".v-tile-text"));
+    } else {
+      var wk = weekTile(api, s);
+      if (wk) tiles.push(wk);
     }
     if (on(t) && t.fuel_pct != null) tiles.push(tile(api, t.name || "Truck", t.fuel_pct + "%", [t.gallons != null ? t.gallons + " gal" : null, t.range_mi != null ? "Range " + t.range_mi + " mi" : null, t.odometer ? "Odometer " + String(t.odometer).replace(" mi", "") : null]));
     return tiles.length ? api.h("div.v-glance", { "aria-label": "At a glance" }, tiles) : null;
+  }
+
+  // In the game slot on a day with no game: the week ahead, counted.
+  function weekTile(api, s) {
+    var l = s.lookahead, u = s.due;
+    if (!on(l) && !on(u)) return null;
+    var evN = on(l) ? (l.days || []).reduce(function (a, dy) { return a + (dy.items || []).length; }, 0) : null;
+    var dl = on(u) ? (u.items || []).filter(function (t) { return t.day_offset != null && t.day_offset >= 1 && t.day_offset <= 7; }).length : null;
+    var first = on(l) ? (l.days || [])[0] : null, firstIt = first && (first.items || [])[0];
+    return tile(api, "Week ahead", evN != null ? api.plural(evN, "event") : api.plural(dl, "deadline"), [
+      evN != null && dl ? api.plural(dl, "deadline") : null,
+      firstIt ? "Next: " + firstIt.title : null], ".v-tile-text");
   }
 
   /* ---------- Today: timeline ---------- */
@@ -183,10 +272,10 @@
   }
   function needsCard(api, n) {
     var list = openNeeds(api), shown = list.slice(0, n);
-    var right = list.length > shown.length ? link(api, "See all " + list.length, function () { ui.inbox = "needs"; api.go("inbox"); })
+    var right = list.length > shown.length ? link(api, "See all " + list.length, function () { api.go("inbox"); })
       : api.h("span.v-card-meta", null, list.length ? api.plural(list.length, "decision") : "");
-    var body = shown.length ? shown.map(function (it) { return needCompact(api, it); }) : muted(api, "Nothing waiting on you");
-    return card(api, "Needs you", right, body, list.length ? ".v-card-needs" : "");
+    if (!shown.length) return null;  // the top bar already says Clear
+    return card(api, "Needs you", right, shown.map(function (it) { return needCompact(api, it); }), ".v-card-needs");
   }
 
   /* ---------- tasks by date ---------- */
@@ -214,7 +303,20 @@
       bare ? null : api.h("div.v-task-when.v-num", null, o != null && o < 0 ? shape(api, "wait") : null, api.h("span", null, when)),
       api.h("div.v-task-main", null,
         api.h("div.v-task-title", null, t.title),
-        api.h("div.v-task-sub", null, t.list, t.otto ? api.h("span.v-otto", null, "Otto made") : null)));
+        api.h("div.v-task-sub", null, t.list, t.otto ? api.h("span.v-otto", null, "Otto made") : null)),
+      taskDone(api, t));
+  }
+  // The Done tap on a task row: a text button; 6 s Undo toast, then the post. The row reads
+  // "Done, syncing" until a snapshot without the task arrives.
+  function taskDone(api, t) {
+    if (!t.done_id || !t.done_token) return null;
+    var r = api.sent(t.done_id);
+    if (r && r.ok !== false) return api.h("div.v-task-done", null, status(api, "live", "Done, syncing"));
+    return api.h("div.v-task-done", null,
+      api.h("button.v-btn.v-btn-sm", { type: "button", "aria-label": "Done: " + t.title,
+        on: { click: function () { api.tap([{ id: t.done_id, action: "done", token: t.done_token }], "Checked off"); } } }, "Done"),
+      r && r.err ? api.h("div.v-task-sub", null, "Not sent: " + r.err)
+        : api.reason(t.done_id) ? api.h("div.v-task-sub", null, api.reason(t.done_id)) : null);
   }
   function dueCard(api, s) {
     if (!s.due) return null;
@@ -222,17 +324,24 @@
     var g = dueGroups(api, s), body = [];
     if (g.overdue.length) body.push(api.h("div.v-sub-head", null, status(api, "wait", "Overdue " + g.overdue.length)));
     g.overdue.forEach(function (t) { body.push(taskRow(api, t)); });
-    body.push(api.h("div.v-sub-head", null, "Today " + g.today.length));
+    if (g.today.length) body.push(api.h("div.v-sub-head", null, "Today " + g.today.length));
     g.today.forEach(function (t) { body.push(taskRow(api, t)); });
-    if (!g.today.length) body.push(muted(api, "Nothing due today"));
-    return card(api, "Due today and overdue", link(api, "All lists", function () { api.go("lists"); }), body);
+    if (!g.today.length) {
+      // nothing due today: the next dated tasks instead of an empty line
+      var soon = g.week.concat(g.later).slice(0, 2);
+      if (!soon.length && !g.overdue.length) return null;
+      if (soon.length) {
+        body.push(api.h("div.v-sub-head" + (body.length ? "" : ".v-sub-first"), null, "Nothing due today. Next up"));
+        soon.forEach(function (t) { body.push(taskRow(api, t)); });
+      }
+    }
+    return card(api, g.overdue.length || g.today.length ? "Due today and overdue" : "Tasks", link(api, "All lists", function () { api.go("lists"); }), body);
   }
 
   /* ---------- inbox ---------- */
-  function stats(api, a) {
-    return api.h("div.v-stats", null, a.filter(function (x) { return x[0] != null; }).map(function (x) {
-      return api.h("div.v-stat", null, api.h("div.v-stat-n.v-num", null, String(x[0])), api.h("div.v-stat-l", null, x[1]));
-    }));
+  function statLines(api, a) { // one stat per line: label, then the number
+    var rows = a.filter(function (x) { return x && x[0] != null; });
+    return rows.length ? api.h("div.v-kv", null, rows.map(function (x) { return kvRow(api, x[1], String(x[0])); })) : null;
   }
   function mailRow(api, r) {
     return api.h("div.v-mail", null, api.h("div.v-mail-from", null, r.from), api.h("div.v-mail-sub", null, r.subject));
@@ -243,11 +352,40 @@
       api.h("div.v-filed-main", null, api.h("div.v-act-title", null, r.text)));
   }
   function unreadText(b) { return b.unread == null ? null : b.unread + (b.unread_capped ? "+" : ""); }
+  // What Otto filed today: the inbox block's list (the activity log, one source), or the
+  // older snapshot's added_today.
+  function filedList(api, s) {
+    var b = on(s.inbox) ? s.inbox : {};
+    if (b.filed) return b.filed;
+    return api.handled(s).map(function (it) { return { at: it.at, text: it.title, agent: it.lead, id: it.id, undo_token: it.undo_token, undo_until: it.undo_until }; });
+  }
+  // The count: the block's own total (the list it carries is capped), else the list.
+  function filedCount(s, filed) {
+    var b = on(s.inbox) ? s.inbox : {};
+    return b.filed && b.filed_today != null ? b.filed_today : filed.length;
+  }
+  function filedRow(api, r) {
+    var sent = r.id ? api.sent(r.id) : null;
+    return api.h("div.v-filed", null,
+      api.h("div.v-filed-t.v-num", null, api.fmtTime(r.at)),
+      api.h("div.v-filed-main", null, api.h("div.v-ev-title", null, r.text), r.agent ? api.h("div.v-ev-sub", null, "By " + api.nameOf(r.agent)) : null),
+      sent && sent.ok !== false ? status(api, "live", "Undone") : r.id && api.undoable(r)
+        ? api.h("button.v-btn.v-btn-sm", { type: "button", on: { click: function () { api.send(r.id, "undo", r.undo_token); } } }, "Undo") : null);
+  }
   function inboxCard(api, s) {
     var b = s.inbox;
     if (!on(b)) return null;
-    return card(api, "Inbox", link(api, "Open", function () { ui.inbox = b.unread != null ? "mail" : "filed"; api.go("inbox"); }), [
-      stats(api, [[unreadText(b), "Unread"], [b.filed_today, "Otto filed today"], [(b.digest || []).length, "Digest lines today"]]),
+    var ik = b.mail_counts || {}, filed = filedList(api, s), dg = (b.digest || []).length, fn = filedCount(s, filed);
+    var lines = statLines(api, [
+      [unreadText(b), "Unread"],
+      [ik.read != null ? ik.read : null, "Read by Otto today"],
+      [fn || null, "Otto filed today"],
+      [dg || null, "Digest lines today"],
+      [ik.ignored || null, "Ignored by rule"],
+      [ik.waiting || null, "Waiting for the next check"]]);
+    if (!lines) return null;
+    return card(api, "Inbox", link(api, "Open", function () { api.go("inbox"); }), [
+      lines,
       (b.top || []).slice(0, 2).map(function (r) { return mailRow(api, r); })
     ]);
   }
@@ -276,9 +414,9 @@
         r.note ? api.h("div.v-row-n", null, r.note) : null);
     });
   }
-  function listCard(api, label, b, none) {
-    if (!on(b)) return null;
-    return card(api, label, null, (b.rows || []).length ? lineRows(api, b.rows) : muted(api, none));
+  function listCard(api, label, b) { // nothing set up: no card at all
+    if (!on(b) || !(b.rows || []).length) return null;
+    return card(api, label, null, lineRows(api, b.rows));
   }
 
   /* ---------- sleep and recovery ---------- */
@@ -291,7 +429,7 @@
       days.map(function (dname, i) {
         var v = hrs[i], last = i === days.length - 1;
         return api.h("div.v-bar-col", null,
-          api.h("div.v-bar-v.v-num", null, v != null ? v.toFixed(1) : ""),
+          api.h("div.v-bar-v.v-num", null, v != null ? v.toFixed(1) + " h" : ""),
           api.h("div.v-bar-track", null, api.h("div.v-bar" + (last ? ".v-bar-now" : ""), { style: "height:" + Math.min(100, (v || 0) / max * 100) + "%" })));
       }));
     var labels = api.h("div.v-bar-labels", null, days.map(function (dn) { return api.h("span", null, dn); }));
@@ -314,26 +452,35 @@
   function kvRow(api, k, v) { return api.h("div.v-kv-row", null, api.h("div.v-kv-k", null, k), api.h("div.v-kv-v.v-num", null, v)); }
   function vmLine(vm) { return pct(vm.ram_used_mb, vm.ram_total_mb) + " (" + vm.ram_used_mb + " of " + vm.ram_total_mb + " MB)"; }
   function soonest(rows, n) {
-    return rows.filter(function (x) { return x.next_at; }).slice().sort(function (a, b) {
-      return String(a.next_at) < String(b.next_at) ? -1 : 1;
-    }).slice(0, n);
+    return rows.map(function (x) { return { x: x, t: agentNext(x) }; }).filter(function (p) { return p.t; })
+      .sort(function (a, b) { return a.t - b.t; }).slice(0, n).map(function (p) { return p.x; });
   }
   function agentRow(api, x, compact) {
-    var kind = STATE_KIND[x.state] || "dark";
+    var kind = STATE_KIND[x.state] || "dark", nx = agentNext(x), lines;
+    if (x.state === "dark" && !x.last_at && x.cron && nx) {
+      // scheduled, never ran: say when, not "No run on record"
+      var dl = daily(x.cron);
+      lines = [api.h("div", null, dl ? "Daily at " + api.fmtTime(nx) : "Next " + whenLabel(api, nx)),
+        api.h("div", null, "First run " + (dl ? dayWord(api, nx) : whenLabel(api, nx)))];
+    } else {
+      lines = [api.h("div", null, api.h("span.v-runs-k", null, "Ran "), x.last_at ? whenLabel(api, x.last_at) : x.last),
+        x.schedule ? api.h("div", null, x.schedule)
+          : x.state === "manual" ? api.h("div", null, "On demand")
+          : api.h("div", null, api.h("span.v-runs-k", null, "Next "), nx ? whenLabel(api, nx) : x.next)];
+    }
     return api.h("div.v-agent" + (compact ? ".v-agent-c" : ""), null,
       api.h("div.v-agent-name", null, x.name, x.note && !compact ? api.h("div.v-agent-note", null, x.note) : null),
-      api.h("div.v-agent-runs.v-num", null,
-        api.h("div", null, api.h("span.v-runs-k", null, "Ran "), x.last),
-        api.h("div", null, api.h("span.v-runs-k", null, "Next "), x.next)),
-      status(api, kind, x.state === "late" ? "Late" : x.state === "live" ? "On schedule" : x.state === "dark" ? "No run yet" : null));
+      api.h("div.v-agent-runs.v-num", null, lines),
+      status(api, kind, STATE_WORD[x.state] || null));
   }
   function systemCard(api, s) {
     var a = agentRows(s), vm = s.vm, c = on(s.decisions) ? (s.decisions.verdicts || [])[0] : null;
     var liveN = a.filter(function (x) { return x.state === "live"; }).length;
+    var schedN = a.filter(function (x) { return x.state !== "manual"; }).length;
     return card(api, "Otto and system", link(api, "Open Otto", function () { api.go("otto"); }), [
       sysHead(api, s),
       api.h("div.v-kv", null,
-        a.length ? kvRow(api, "Agents on schedule", liveN + " of " + a.length) : null,
+        schedN ? kvRow(api, "Agents on schedule", liveN + " of " + schedN) : null,
         on(vm) ? kvRow(api, "VM memory", vmLine(vm)) : null,
         c ? kvRow(api, "Latest decision", c.title) : null),
       a.length ? [api.h("div.v-sub-head", null, "Next runs"), soonest(a, 4).map(function (x) { return agentRow(api, x, true); })] : null
@@ -347,7 +494,7 @@
   function renderToday(s, api) {
     var colA = api.h("div.v-col.v-col-a", null, ord(1, needsCard(api, 3)), ord(2, glance(api, s)), ord(3, timeline(api, s)), ord(7, lookahead(api, s)));
     var colB = api.h("div.v-col.v-col-b", null, ord(4, dueCard(api, s)), ord(5, inboxCard(api, s)),
-      ord(8, listCard(api, "Watching", s.watching, "No watchers set up")), ord(9, listCard(api, "Goals", s.goals, "No active goals")));
+      ord(8, listCard(api, "Watching", s.watching)), ord(9, listCard(api, "Goals", s.goals)));
     var colC = api.h("div.v-col.v-col-c", null, ord(6, sleepCard(api, s)), ord(10, systemCard(api, s)), ord(11, legend(api)));
     return [heading(api, api.fmtDay(new Date()), "Otto checked " + api.fmtTime(s.generated)),
       api.h("div.v-grid", null, colA, colB, colC)];
@@ -379,37 +526,35 @@
       reason ? api.h("div.v-need-why", null, reason) : null,
       done || buttons(api, it));
   }
-  function seg(api, items) {
-    return api.h("div.v-seg", { role: "tablist" }, items.map(function (x) {
-      var sel = ui.inbox === x[0];
-      return api.h("button.v-seg-b" + (sel ? ".v-on" : ""), { type: "button", role: "tab", "aria-selected": sel ? "true" : "false",
-        on: { click: function () { ui.inbox = x[0]; api.render(); } } }, x[1], x[2] != null ? api.h("span.v-seg-n.v-num", null, String(x[2])) : null);
-    }));
-  }
   function renderInbox(s, api) {
-    var needs = openNeeds(api), filed = api.handled(s), b = on(s.inbox) ? s.inbox : {};
-    var body;
-    if (ui.inbox === "filed") {
-      body = card(api, "Otto filed today", null, filed.length ? filed.map(function (it) {
-        var r = api.sent(it.id);
-        return api.h("div.v-filed", null,
-          api.h("div.v-filed-t.v-num", null, api.fmtTime(it.at)),
-          api.h("div.v-filed-main", null, api.h("div.v-ev-title", null, it.title), api.h("div.v-ev-sub", null, "By " + api.nameOf(it.lead))),
-          r && r.ok !== false ? status(api, "live", "Undone") : api.undoable(it)
-            ? api.h("button.v-btn.v-btn-sm", { type: "button", on: { click: function () { api.send(it.id, "undo", it.undo_token); } } }, "Undo") : null);
-      }) : muted(api, "Nothing filed yet today"));
-    } else if (ui.inbox === "mail") {
-      body = [
-        b.unread != null ? card(api, "Unread, primary", api.h("span.v-card-meta.v-num", null, unreadText(b)),
-          (b.top || []).length ? b.top.map(function (r) { return mailRow(api, r); }) : muted(api, "Nothing unread")) : muted(api, "Mail not read this check"),
-        card(api, "Digest lines today", null, (b.digest || []).length ? b.digest.map(function (r) { return digestRow(api, r); }) : muted(api, "No digest lines yet today"))
-      ];
+    var needs = openNeeds(api), filed = filedList(api, s), b = on(s.inbox) ? s.inbox : {}, ik = b.mail_counts || {};
+    var dg = b.digest || [], cards = [], fn = filedCount(s, filed);
+    if (needs.length) cards.push(api.h("div.v-sub-head.v-sub-first", null, status(api, "wait", "Needs you " + needs.length)),
+      needs.map(function (it) { return needFull(api, it); }));
+    if (on(s.inbox)) {
+      var did = fn || dg.length || needs.length;
+      var lines = statLines(api, [
+        [ik.read != null ? ik.read : null, "Read today"],
+        [fn || null, "Filed"],
+        [dg.length || null, "Digest lines"],
+        [ik.ignored || null, "Ignored by rule"],
+        [ik.waiting || null, "Waiting for the next check"]]);
+      cards.push(card(api, "Otto's mail today", null, [
+        !did && ik.read != null ? api.h("div.v-sys-head", null, status(api, "live", "Otto read " + api.plural(ik.read, "email") + " today, nothing needed you")) : null,
+        lines,
+        filed.length ? [api.h("div.v-sub-head", null, "Filed"), filed.map(function (r) { return filedRow(api, r); })] : null,
+        dg.length ? [api.h("div.v-sub-head", null, "Digest lines"), dg.map(function (r) { return digestRow(api, r); })] : null
+      ]));
+      if (b.unread != null && (b.unread || (b.top || []).length)) {
+        cards.push(card(api, "Unread, primary", api.h("span.v-card-meta.v-num", null, unreadText(b)),
+          (b.top || []).map(function (r) { return mailRow(api, r); })));
+      } else if (b.unread === 0) {
+        cards.push(api.h("div.v-muted-line", null, "Primary inbox is at zero unread"));
+      }
     } else {
-      body = needs.length ? needs.map(function (it) { return needFull(api, it); }) : muted(api, "Nothing waiting on you");
+      cards.push(muted(api, "Mail not read this check"));
     }
-    return [heading(api, "Inbox", null), dayStrip(api, s),
-      seg(api, [["needs", "Needs you", needs.length], ["filed", "Filed", filed.length], ["mail", "Mail", unreadText(b)]]),
-      api.h("div.v-stack", null, body, legend(api))];
+    return [heading(api, "Inbox", null), dayStrip(api, s), api.h("div.v-stack", null, cards, legend(api))];
   }
 
   /* ---------- Lists ---------- */
@@ -447,8 +592,7 @@
       sysHead(api, s),
       api.h("div.v-kv", null,
         kvRow(api, "Last check", api.fmtTime(s.generated)),
-        pf.self_update ? kvRow(api, "Last self-update", api.fmtTime(pf.self_update)) : null,
-        pf.commit ? kvRow(api, "Main at", pf.commit) : null)
+        pf.self_update ? kvRow(api, "Updated", whenLabel(api, pf.self_update)) : null)
     ]);
     var agents = a.length ? card(api, "Agents", api.h("span.v-card-meta", null, a.length + " on the roster"),
       a.map(function (x) { return agentRow(api, x, false); })) : null;
@@ -476,7 +620,7 @@
     return [heading(api, "Otto", null), dayStrip(api, s),
       api.h("div.v-grid.v-grid-otto", null,
         api.h("div.v-col", null, ord(1, statusCard), ord(3, vmCard), ord(5, decisions),
-          ord(6, listCard(api, "Watching", s.watching, "No watchers set up")), ord(7, listCard(api, "Goals", s.goals, "No active goals"))),
+          ord(6, listCard(api, "Watching", s.watching)), ord(7, listCard(api, "Goals", s.goals))),
         api.h("div.v-col", null, ord(2, agents)),
         api.h("div.v-col", null, ord(4, act), ord(8, mapCard), ord(9, legend(api)), ord(10, api.lookPicker())))];
   }
@@ -488,7 +632,7 @@
       api.h("div.v-brand", null,
         api.h("span.v-word", null, api.h("span.v-word-a", null, "Otto"), api.h("span.v-word-b", null, "OS"))),
       api.h("div.v-top-right", null,
-        n ? api.h("button.v-pill", { type: "button", on: { click: function () { ui.inbox = "needs"; api.go("inbox"); } } }, shape(api, "wait"), api.h("span.v-num", null, n + " need you"))
+        n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("inbox"); } } }, shape(api, "wait"), api.h("span.v-num", null, n + " need you"))
           : status(api, "live", "Clear"),
         api.DEMO ? api.h("span.v-demo", null, "Demo") : null)
     ];

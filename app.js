@@ -262,6 +262,9 @@
     var gen = d(s.generated);
     (s.needs_you || []).forEach(function (i) { live[i.id] = 1; pending[i.id] = 1; });
     (s.added_today || []).forEach(function (i) { live[i.id] = 1; });
+    // A task row's Done tap stays "Done, syncing" while the snapshot still lists the task;
+    // a refused or failed outcome (or no result after a pass) brings the button back.
+    ((s.due && s.due.items) || []).forEach(function (t) { if (t.done_id) { live[t.done_id] = 1; pending[t.done_id] = 1; } });
     Object.keys(state.sent).forEach(function (id) {
       var r = state.sent[id];
       var old = minutesOld(r.at) > 36 * 60;
