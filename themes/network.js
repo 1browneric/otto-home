@@ -51,12 +51,13 @@
   }
   function stateOf(t) { return t.working_now ? "running" : (t.state || "unknown"); }
 
-  // Fixed spots for up to 11 teams around Otto, sized for a 358 px wide map (390 phone).
-  var W = 358, H = 500, CX = 179, CY = 258, R = 58;
+  // Fixed spots for up to 12 teams around Otto, sized for a 358 px wide map (390 phone).
+  var W = 358, H = 560, CX = 179, CY = 258, R = 58;
   var SPOTS = [
     [179, 34],
     [66, 112], [52, 192], [48, 272], [52, 352], [66, 432],
-    [292, 112], [306, 192], [310, 272], [306, 352], [292, 432]
+    [292, 112], [306, 192], [310, 272], [306, 352], [292, 432],
+    [179, 488]
   ];
 
   function nodeShape(state, x, y, on) {

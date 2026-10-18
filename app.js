@@ -155,6 +155,83 @@
     var m = /(\d+):(\d+)/.exec(p);
     return m ? ((+m[1]) % 24) * 60 + (+m[2]) : 0;
   }
+  /* ---------- schedule (begin): pure, no DOM; tests load this block on its own ----------
+     The snapshot carries each agent's cron lines (UTC, as the VM runs them). nextFire is the
+     next run after a moment; snapLate says whether the snapshot itself is overdue, judged
+     against the orchestrator's NEXT scheduled tick (its cron lines, else the tick window),
+     so the night gap after the last evening tick is never a problem. */
+  var CRON_RANGE = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
+  function cronField(spec, lo, hi) {
+    if (spec === "*") return null;
+    var out = {};
+    spec.split(",").forEach(function (part) {
+      var bits = part.split("/"), rng = bits[0], step = bits[1] ? +bits[1] : 1, a, b;
+      if (rng === "*") { a = lo; b = hi; }
+      else if (rng.indexOf("-") >= 0) { a = +rng.split("-")[0]; b = +rng.split("-")[1]; }
+      else { a = +rng; b = bits[1] ? hi : a; }
+      for (var x = a; x <= b; x += step) out[hi === 6 && x === 7 ? 0 : x] = 1;
+    });
+    return out;
+  }
+  function cronSpecs(lines) {
+    return (lines || []).map(function (ln) {
+      var f = String(ln).split(/\s+/);
+      if (f.length !== 5) return null;
+      return f.map(function (x, i) { return cronField(x, CRON_RANGE[i][0], CRON_RANGE[i][1]); });
+    }).filter(Boolean);
+  }
+  function cronHas(set, v) { return set === null || !!set[v]; }
+  function cronList(set, lo, hi) { var o = []; for (var x = lo; x <= hi; x++) if (cronHas(set, x)) o.push(x); return o; }
+  function cronDay(sp, day) { // day: a Date at 00:00 UTC
+    if (!cronHas(sp[3], day.getUTCMonth() + 1)) return false;
+    var domOk = cronHas(sp[2], day.getUTCDate()), dowOk = cronHas(sp[4], day.getUTCDay());
+    return sp[2] !== null && sp[4] !== null ? domOk || dowOk : domOk && dowOk;
+  }
+  // The first run strictly after fromMs (a Date), or null.
+  function nextFire(lines, fromMs) {
+    var specs = cronSpecs(lines), best = null, base = Math.floor(+fromMs / 60000) * 60000;
+    specs.forEach(function (sp) {
+      var hrs = cronList(sp[1], 0, 23), mins = cronList(sp[0], 0, 59);
+      for (var n = 0; n < 9; n++) {
+        var d0 = new Date(Math.floor(base / 86400000) * 86400000 + n * 86400000);
+        if (!cronDay(sp, d0)) continue;
+        var hit = null;
+        for (var i = 0; i < hrs.length && !hit; i++) for (var j = 0; j < mins.length; j++) {
+          var t = d0.getTime() + hrs[i] * 3600000 + mins[j] * 60000;
+          if (t > base) { hit = t; break; }
+        }
+        if (hit) { if (best === null || hit < best) best = hit; break; }
+      }
+    });
+    return best === null ? null : new Date(best);
+  }
+  function ctMinutes(x) {
+    var p = x.toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour12: false, hour: "2-digit", minute: "2-digit" });
+    var m = /(\d+):(\d+)/.exec(p);
+    return m ? ((+m[1]) % 24) * 60 + (+m[2]) : 0;
+  }
+  // When the next snapshot is due: the orchestrator's next cron tick after the snapshot.
+  function nextSnapshot(s) {
+    var g = s && s.generated ? new Date(s.generated) : null;
+    if (!g || isNaN(g)) return null;
+    var rows = ((s.agents_runs || {}).rows) || [], orch = null;
+    rows.forEach(function (r) { if (r && r.id === "otto-orch" && r.cron && r.cron.length) orch = r; });
+    if (orch) return nextFire(orch.cron, g.getTime());
+    var t = s.tick || {}, cad = +t.cadence_min || 30;
+    var hmOf = function (v) { var m = /^(\d{1,2}):(\d{2})$/.exec(v || ""); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+    var last = hmOf(t.last_evening), first = hmOf(t.first_morning), now = ctMinutes(g);
+    if (last != null && first != null && now >= last) return new Date(g.getTime() + (24 * 60 - now + first) * 60000);
+    if (last != null && first != null && now < first) return new Date(g.getTime() + (first - now) * 60000);
+    return new Date(g.getTime() + cad * 60000);
+  }
+  // True when the next scheduled snapshot is more than graceMin overdue at nowMs.
+  function snapLate(s, nowMs, graceMin) {
+    var due = nextSnapshot(s);
+    if (!due) return false;
+    return +nowMs > due.getTime() + (graceMin == null ? 30 : graceMin) * 60000;
+  }
+  /* ---------- schedule (end) ---------- */
+
   function clock(mins) {
     var hh = Math.floor(mins / 60) % 24, mm = mins % 60;
     var ap = hh >= 12 ? "PM" : "AM", h12 = hh % 12 || 12;
@@ -502,7 +579,7 @@
   function freshness() {
     var g = state.snap && state.snap.generated;
     if (!g) return { text: "No snapshot yet", stale: false };
-    var stale = minutesOld(g) > STALE_MIN;
+    var stale = snapLate(state.snap, Date.now(), STALE_MIN);
     return { text: (stale ? "Stale - updated " : "Updated ") + ago(g), stale: stale };
   }
   function renderTop() {
@@ -573,7 +650,7 @@
   function health(s) {
     var out = [], today = dayKey(new Date());
     if (!DEMO && state.offline) out.push({ short: "Offline", detail: "Showing the last saved snapshot" });
-    if (s.generated && minutesOld(s.generated) > STALE_MIN) {
+    if (s.generated && snapLate(s, Date.now(), STALE_MIN)) {
       out.push({ short: "No update for " + agoWords(s.generated).replace(" ago", ""), detail: "Last report " + fmtTime(s.generated) });
     }
     (s.timeline || []).forEach(function (e) {
@@ -1025,7 +1102,7 @@
     dayKey: dayKey, ago: ago, agoWords: agoWords, minutesOld: minutesOld, cap: cap, plural: plural,
     nameOf: nameOf, clock: clock, tickInfo: tickInfo, nextCheck: nextCheck, freshness: freshness,
     st: st, legend: legend, kv: kv,
-    health: health, healthLine: healthLine, todayCounts: todayCounts,
+    health: health, healthLine: healthLine, nextFire: nextFire, snapLate: snapLate, nextSnapshot: nextSnapshot, todayCounts: todayCounts,
     preview: preview, previewKind: previewKind, calPreview: calPreview, replyPreview: replyPreview,
     whyText: whyText, typeLabel: typeLabel, areaOf: areaOf, groups: groups, groupOf: groupOf,
     pendingItems: pendingItems, openItems: openItems, isOpen: isOpen, unsentCount: unsentCount,

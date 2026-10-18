@@ -34,7 +34,7 @@
         status(api, "wait", "Waiting on you, late or overdue"),
         status(api, "run", "Working now"),
         status(api, "dry", "Dry run"),
-        status(api, "dark", "Manual, off or no run yet")));
+        status(api, "dark", "Manual, off, no run yet or not checked")));
   }
   function card(api, label, right, body, extra) {
     return api.h("section.v-card" + (extra || ""), null,
@@ -62,11 +62,20 @@
     });
   }
   function nowMs() { return Date.now(); }
+  // ISO dates in logged text ("due 2026-10-22") read as written-out dates ("due October 22").
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function words(text) {
+    return String(text == null ? "" : text).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, function (m, y, mo, dd) {
+      var i = +mo - 1;
+      if (i < 0 || i > 11) return m;
+      return MONTHS[i] + " " + (+dd) + (+y !== new Date(nowMs()).getFullYear() ? ", " + y : "");
+    });
+  }
   function ord(n, node) { if (node && node.style) node.style.order = n; return node; }
 
   /* ---------- schedules: the snapshot carries each agent's cron lines (UTC, as the VM
-     runs them); the next run is computed here against this device's clock, so a snapshot
-     read later never shows a next run that already went by. ---------- */
+     runs them); the next run is computed (api.nextFire, app.js) against this device's
+     clock, so a snapshot read later never shows a next run that already went by. ---------- */
   var CRON_RANGE = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
   function cronField(spec, lo, hi) {
     if (spec === "*") return null;
@@ -88,29 +97,7 @@
     }).filter(Boolean);
   }
   function has(set, v) { return set === null || !!set[v]; }
-  function firesOn(sp, day) { // day: a Date at 00:00 UTC
-    if (!has(sp[3], day.getUTCMonth() + 1)) return false;
-    var domOk = has(sp[2], day.getUTCDate()), dowOk = has(sp[4], day.getUTCDay());
-    return sp[2] !== null && sp[4] !== null ? domOk || dowOk : domOk && dowOk;
-  }
   function list(set, lo, hi) { var o = []; for (var x = lo; x <= hi; x++) if (has(set, x)) o.push(x); return o; }
-  function nextFire(lines, fromMs) {
-    var specs = cronSpecs(lines), best = null, base = Math.floor(fromMs / 60000) * 60000;
-    specs.forEach(function (sp) {
-      var hrs = list(sp[1], 0, 23), mins = list(sp[0], 0, 59);
-      for (var n = 0; n < 9; n++) {
-        var d0 = new Date(Math.floor(base / 86400000) * 86400000 + n * 86400000);
-        if (!firesOn(sp, d0)) continue;
-        var hit = null;
-        for (var i = 0; i < hrs.length && !hit; i++) for (var j = 0; j < mins.length; j++) {
-          var t = d0.getTime() + hrs[i] * 3600000 + mins[j] * 60000;
-          if (t > base) { hit = t; break; }
-        }
-        if (hit) { if (best === null || hit < best) best = hit; break; }
-      }
-    });
-    return best === null ? null : new Date(best);
-  }
   function daily(lines) { // "Daily at 6:41 AM" for one fixed time every day, else null
     var sp = cronSpecs(lines);
     if (sp.length !== 1 || sp[0][2] !== null || sp[0][3] !== null || sp[0][4] !== null) return null;
@@ -137,7 +124,29 @@
     if (k === keyPlus(api, 1)) return "tomorrow";
     return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long" });
   }
-  function agentNext(x) { return x.cron ? nextFire(x.cron, nowMs()) : (x.next_at ? new Date(x.next_at) : null); }
+  function agentNext(api, x) {
+    if (x.cron) return api.nextFire(x.cron, nowMs());
+    var t = x.next_at ? api.d(x.next_at) : null;
+    return t && t.getTime() > nowMs() ? t : null;          // never a Next in the past
+  }
+  // A row's state is as of the snapshot. When no new snapshot is coming soon (the night
+  // gap: the orchestrator's next scheduled tick is far off) or the next one is overdue
+  // (api.snapLate), and a run of this agent was due after the snapshot, the app cannot
+  // know how that run went: the row says Not checked instead of On schedule. A tick that
+  // is a few minutes late in the day never flips the rows.
+  var GAP_MS = 35 * 60000, RUN_GRACE_MS = 5 * 60000;
+  function waiting(api, s) { // true while the snapshot cannot vouch for later runs
+    var g = api.d(s && s.generated), ns = api.nextSnapshot(s);
+    if (!g) return false;
+    return (!!ns && ns.getTime() - g.getTime() > GAP_MS) || api.snapLate(s, nowMs(), 30);
+  }
+  function unchecked(api, s, x) {
+    var g = api.d(s && s.generated), now = nowMs();
+    if (!g || x.state === "manual" || x.schedule || !waiting(api, s)) return false;
+    if (x.cron) { var n = api.nextFire(x.cron, g.getTime()); return !!n && n.getTime() + RUN_GRACE_MS < now; }
+    var t = x.next_at ? api.d(x.next_at) : null;
+    return !!t && t.getTime() + RUN_GRACE_MS < now;
+  }
 
   /* ---------- the day anchor every non-Today tab leads with ---------- */
   function upcoming(api, s) {
@@ -171,6 +180,12 @@
       api.h("div.v-tile-big.v-num", null, big),
       lines.filter(Boolean).map(function (l) { return api.h("div.v-tile-l", null, l); }));
   }
+  var TRUCK_STALE_MS = 2 * 3600000;
+  // "10:36 AM today", else "Friday, October 16, 10:36 AM": written-out date, 12-hour time.
+  function asOfLabel(api, x) {
+    if (api.dayKey(x) === todayKey(api)) return api.fmtTime(x) + " today";
+    return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", month: "long", day: "numeric" }) + ", " + api.fmtTime(x);
+  }
   function glance(api, s) {
     var w = s.weather, r = s.recovery, sp = s.sports, t = s.truck, tiles = [];
     if (on(w) && w.hi != null) tiles.push(tile(api, "Weather", w.hi + "° / " + w.lo + "°", [w.sky, w.wind, w.rain]));
@@ -181,7 +196,12 @@
       var wk = weekTile(api, s);
       if (wk) tiles.push(wk);
     }
-    if (on(t) && t.fuel_pct != null) tiles.push(tile(api, t.name || "Truck", t.fuel_pct + "%", [t.gallons != null ? t.gallons + " gal" : null, t.range_mi != null ? "Range " + t.range_mi + " mi" : null, t.odometer ? "Odometer " + String(t.odometer).replace(" mi", "") : null]));
+    if (on(t) && t.fuel_pct != null) {
+      // the Colorado card rule: GM's own numbers, with "As of <time>" once they are stale
+      var asOf = api.d(t.as_of), old = asOf && nowMs() - asOf.getTime() > TRUCK_STALE_MS;
+      tiles.push(tile(api, t.name || "Truck", t.fuel_pct + "%", [t.gallons != null ? t.gallons + " gal" : null, t.range_mi != null ? "Range " + t.range_mi + " mi" : null,
+        old ? "As of " + asOfLabel(api, asOf) : t.odometer ? "Odometer " + String(t.odometer).replace(" mi", "") : null]));
+    }
     return tiles.length ? api.h("div.v-glance", { "aria-label": "At a glance" }, tiles) : null;
   }
 
@@ -243,6 +263,18 @@
     else if (!nowPlaced) rows.push(api.h("div.v-now", null, api.h("span.v-now-t.v-num", null, "Now " + api.fmtTime(new Date())), api.h("span.v-now-line")));
     return card(api, "Today", api.h("span.v-card-meta", null, api.plural(ev.length, "event")),
       [api.h("div.v-tl", null, rows), t.footer ? api.h("div.v-foot", null, t.footer) : null]);
+  }
+
+  /* ---------- conflicts in the next 14 days (hidden when there are none) ---------- */
+  function conflictsCard(api, s) {
+    var t = s.today, rows = on(t) ? (t.conflicts_ahead || []) : [];
+    if (!rows.length) return null;
+    return card(api, "Conflicts", api.h("span.v-card-meta", null, api.plural(rows.length, "conflict")),
+      rows.map(function (c) {
+        return api.h("div.v-conflict-row", null,
+          api.h("div.v-ev-sub", null, status(api, "wait", c.day || api.fmtDay(c.at))),
+          api.h("div.v-ev-title", null, c.text));
+      }), ".v-card-needs");
   }
 
   /* ---------- Needs You ---------- */
@@ -349,7 +381,7 @@
   function digestRow(api, r) {
     return api.h("div.v-filed", null,
       api.h("div.v-filed-t.v-num", null, r.at ? api.fmtTime(r.at) : ""),
-      api.h("div.v-filed-main", null, api.h("div.v-act-title", null, r.text)));
+      api.h("div.v-filed-main", null, api.h("div.v-act-title", null, words(r.text))));
   }
   function unreadText(b) { return b.unread == null ? null : b.unread + (b.unread_capped ? "+" : ""); }
   // What Otto filed today: the inbox block's list (the activity log, one source), or the
@@ -368,7 +400,7 @@
     var sent = r.id ? api.sent(r.id) : null;
     return api.h("div.v-filed", null,
       api.h("div.v-filed-t.v-num", null, api.fmtTime(r.at)),
-      api.h("div.v-filed-main", null, api.h("div.v-ev-title", null, r.text), r.agent ? api.h("div.v-ev-sub", null, "By " + api.nameOf(r.agent)) : null),
+      api.h("div.v-filed-main", null, api.h("div.v-ev-title", null, words(r.text)), r.agent ? api.h("div.v-ev-sub", null, "By " + api.nameOf(r.agent)) : null),
       sent && sent.ok !== false ? status(api, "live", "Undone") : r.id && api.undoable(r)
         ? api.h("button.v-btn.v-btn-sm", { type: "button", on: { click: function () { api.send(r.id, "undo", r.undo_token); } } }, "Undo") : null);
   }
@@ -378,11 +410,11 @@
     var ik = b.mail_counts || {}, filed = filedList(api, s), dg = (b.digest || []).length, fn = filedCount(s, filed);
     var lines = statLines(api, [
       [unreadText(b), "Unread"],
-      [ik.read != null ? ik.read : null, "Read by Otto today"],
+      [ik.read != null ? ik.read : null, "Read today, new and older"],
       [fn || null, "Otto filed today"],
       [dg || null, "Digest lines today"],
       [ik.ignored || null, "Ignored by rule"],
-      [ik.waiting || null, "Waiting for the next check"]]);
+      [ik.waiting || null, "Waiting to be read"]]);
     if (!lines) return null;
     return card(api, "Inbox", link(api, "Open", function () { api.go("inbox"); }), [
       lines,
@@ -442,21 +474,35 @@
   /* ---------- system beside the day ---------- */
   function agentRows(s) { return on(s.agents_runs) ? (s.agents_runs.rows || []) : []; }
   function lateAgents(s) { return agentRows(s).filter(function (a) { return a.state === "late"; }); }
+  // One problem list for the top bar, Today's system card and the Otto tab.
+  function problems(api, s) {
+    if (!s) return [];
+    return lateAgents(s).map(function (a) { return { short: a.name + " late" }; }).concat(api.health(s));
+  }
+  function nextCheckRow(api, s) { // the next scheduled check; none once it is overdue
+    var ns = api.nextSnapshot(s);
+    return ns && ns.getTime() > nowMs() ? kvRow(api, "Next check", whenLabel(api, ns)) : null;
+  }
+  function anyUnchecked(api, s) { return agentRows(s).some(function (x) { return unchecked(api, s, x); }); }
   function sysHead(api, s) {
-    var p = api.health(s), late = lateAgents(s), n = p.length + late.length;
+    var p = problems(api, s), n = p.length;
+    if (!n && anyUnchecked(api, s)) return api.h("div.v-sys-head", null, status(api, "live", "Normal at the last check"));
     if (!n) return api.h("div.v-sys-head", null, status(api, "live", "All systems normal"));
-    var first = late.length ? late[0].name + " late" : p[0].short;
+    var first = p[0].short;
     return api.h("div.v-sys-head.v-warn", null, status(api, "wait", n === 1 ? "1 problem: " + first : n + " problems"));
   }
   function pct(a, b) { return Math.round(a / b * 100) + "%"; }
   function kvRow(api, k, v) { return api.h("div.v-kv-row", null, api.h("div.v-kv-k", null, k), api.h("div.v-kv-v.v-num", null, v)); }
   function vmLine(vm) { return pct(vm.ram_used_mb, vm.ram_total_mb) + " (" + vm.ram_used_mb + " of " + vm.ram_total_mb + " MB)"; }
-  function soonest(rows, n) {
-    return rows.map(function (x) { return { x: x, t: agentNext(x) }; }).filter(function (p) { return p.t; })
+  function soonest(api, rows, n) {
+    return rows.map(function (x) { return { x: x, t: agentNext(api, x) }; }).filter(function (p) { return p.t; })
       .sort(function (a, b) { return a.t - b.t; }).slice(0, n).map(function (p) { return p.x; });
   }
-  function agentRow(api, x, compact) {
-    var kind = STATE_KIND[x.state] || "dark", nx = agentNext(x), lines;
+  function agentRow(api, s, x, compact) {
+    var kind = STATE_KIND[x.state] || "dark", nx = agentNext(api, x), lines, word = STATE_WORD[x.state] || null;
+    if (x.gate === "dark") { kind = "dark"; word = "Off"; }
+    else if (x.gate === "dry_run" && x.state === "live") { kind = "dry"; word = "Dry run"; }
+    else if (x.state !== "late" && unchecked(api, s, x)) { kind = "dark"; word = "Not checked"; }
     if (x.state === "dark" && !x.last_at && x.cron && nx) {
       // scheduled, never ran: say when, not "No run on record"
       var dl = daily(x.cron);
@@ -466,24 +512,26 @@
       lines = [api.h("div", null, api.h("span.v-runs-k", null, "Ran "), x.last_at ? whenLabel(api, x.last_at) : x.last),
         x.schedule ? api.h("div", null, x.schedule)
           : x.state === "manual" ? api.h("div", null, "On demand")
-          : api.h("div", null, api.h("span.v-runs-k", null, "Next "), nx ? whenLabel(api, nx) : x.next)];
+          : nx ? api.h("div", null, api.h("span.v-runs-k", null, "Next "), whenLabel(api, nx))
+          : x.cron || x.next_at ? null : api.h("div", null, x.next)];
     }
     return api.h("div.v-agent" + (compact ? ".v-agent-c" : ""), null,
       api.h("div.v-agent-name", null, x.name, x.note && !compact ? api.h("div.v-agent-note", null, x.note) : null),
       api.h("div.v-agent-runs.v-num", null, lines),
-      status(api, kind, STATE_WORD[x.state] || null));
+      status(api, kind, word));
   }
   function systemCard(api, s) {
     var a = agentRows(s), vm = s.vm, c = on(s.decisions) ? (s.decisions.verdicts || [])[0] : null;
     var liveN = a.filter(function (x) { return x.state === "live"; }).length;
+    var stale = a.some(function (x) { return unchecked(api, s, x); });
     var schedN = a.filter(function (x) { return x.state !== "manual"; }).length;
     return card(api, "Otto and system", link(api, "Open Otto", function () { api.go("otto"); }), [
       sysHead(api, s),
       api.h("div.v-kv", null,
-        schedN ? kvRow(api, "Agents on schedule", liveN + " of " + schedN) : null,
+        schedN ? kvRow(api, stale ? "On schedule at " + api.fmtTime(s.generated) : "Agents on schedule", liveN + " of " + schedN) : null,
         on(vm) ? kvRow(api, "VM memory", vmLine(vm)) : null,
         c ? kvRow(api, "Latest decision", c.title) : null),
-      a.length ? [api.h("div.v-sub-head", null, "Next runs"), soonest(a, 4).map(function (x) { return agentRow(api, x, true); })] : null
+      a.length ? [api.h("div.v-sub-head", null, "Next runs"), soonest(api, a, 4).map(function (x) { return agentRow(api, s, x, true); })] : null
     ], ".v-card-sys");
   }
 
@@ -492,7 +540,7 @@
     return api.h("div.v-head", null, api.h("h1.v-h1", null, title), sub ? api.h("div.v-h1-sub", null, sub) : null);
   }
   function renderToday(s, api) {
-    var colA = api.h("div.v-col.v-col-a", null, ord(1, needsCard(api, 3)), ord(2, glance(api, s)), ord(3, timeline(api, s)), ord(7, lookahead(api, s)));
+    var colA = api.h("div.v-col.v-col-a", null, ord(1, needsCard(api, 3)), ord(1, conflictsCard(api, s)), ord(2, glance(api, s)), ord(3, timeline(api, s)), ord(7, lookahead(api, s)));
     var colB = api.h("div.v-col.v-col-b", null, ord(4, dueCard(api, s)), ord(5, inboxCard(api, s)),
       ord(8, listCard(api, "Watching", s.watching)), ord(9, listCard(api, "Goals", s.goals)));
     var colC = api.h("div.v-col.v-col-c", null, ord(6, sleepCard(api, s)), ord(10, systemCard(api, s)), ord(11, legend(api)));
@@ -534,16 +582,14 @@
     if (on(s.inbox)) {
       var did = fn || dg.length || needs.length;
       var lines = statLines(api, [
-        [ik.read != null ? ik.read : null, "Read today"],
-        [fn || null, "Filed"],
-        [dg.length || null, "Digest lines"],
+        [ik.read != null ? ik.read : null, "Read today, new and older"],
         [ik.ignored || null, "Ignored by rule"],
-        [ik.waiting || null, "Waiting for the next check"]]);
+        [ik.waiting || null, "Waiting to be read"]]);
       cards.push(card(api, "Otto's mail today", null, [
         !did && ik.read != null ? api.h("div.v-sys-head", null, status(api, "live", "Otto read " + api.plural(ik.read, "email") + " today, nothing needed you")) : null,
         lines,
-        filed.length ? [api.h("div.v-sub-head", null, "Filed"), filed.map(function (r) { return filedRow(api, r); })] : null,
-        dg.length ? [api.h("div.v-sub-head", null, "Digest lines"), dg.map(function (r) { return digestRow(api, r); })] : null
+        filed.length ? [api.h("div.v-sub-head", null, "Filed " + fn), filed.map(function (r) { return filedRow(api, r); })] : null,
+        dg.length ? [api.h("div.v-sub-head", null, "Digest lines " + dg.length), dg.map(function (r) { return digestRow(api, r); })] : null
       ]));
       if (b.unread != null && (b.unread || (b.top || []).length)) {
         cards.push(card(api, "Unread, primary", api.h("span.v-card-meta.v-num", null, unreadText(b)),
@@ -592,10 +638,11 @@
       sysHead(api, s),
       api.h("div.v-kv", null,
         kvRow(api, "Last check", api.fmtTime(s.generated)),
+        nextCheckRow(api, s),
         pf.self_update ? kvRow(api, "Updated", whenLabel(api, pf.self_update)) : null)
     ]);
     var agents = a.length ? card(api, "Agents", api.h("span.v-card-meta", null, a.length + " on the roster"),
-      a.map(function (x) { return agentRow(api, x, false); })) : null;
+      a.map(function (x) { return agentRow(api, s, x, false); })) : null;
     var vmCard = on(vm) ? card(api, "VM", vm.uptime ? api.h("span.v-card-meta", null, "Up " + vm.uptime) : null, [
       api.h("div.v-meter", { role: "img", "aria-label": "Memory used" }, api.h("div.v-meter-fill", { style: "width:" + pct(vm.ram_used_mb, vm.ram_total_mb) })),
       api.h("div.v-kv", null,
@@ -608,7 +655,7 @@
       var bad = e.result === "failed" || e.result === "error";
       return api.h("div.v-filed", null,
         api.h("div.v-filed-t.v-num", null, api.fmtTime(e.ts)),
-        api.h("div.v-filed-main", null, api.h("div.v-act-title", null, e.summary || api.OPS[e.action] || e.action), api.h("div.v-ev-sub", null, api.nameOf(e.agent))),
+        api.h("div.v-filed-main", null, api.h("div.v-act-title", null, words(e.summary || api.OPS[e.action] || e.action)), api.h("div.v-ev-sub", null, api.nameOf(e.agent))),
         bad ? status(api, "wait", "Failed") : status(api, "live", "Done"));
     }) : muted(api, "No activity yet"));
     var decisions = c.length ? card(api, "Decisions on record", null, c.map(function (v) {
@@ -627,12 +674,13 @@
 
   /* ---------- chrome: wordmark, text tabs, toast ---------- */
   function renderTop(s, api) {
-    var n = s ? openNeeds(api).length : 0;
+    var n = s ? openNeeds(api).length : 0, probs = problems(api, s);
     return [
       api.h("div.v-brand", null,
         api.h("span.v-word", null, api.h("span.v-word-a", null, "Otto"), api.h("span.v-word-b", null, "OS"))),
       api.h("div.v-top-right", null,
         n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("inbox"); } } }, shape(api, "wait"), api.h("span.v-num", null, n + " need you"))
+          : probs.length ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("otto"); } } }, shape(api, "wait"), api.h("span.v-num", null, api.plural(probs.length, "problem")))
           : status(api, "live", "Clear"),
         api.DEMO ? api.h("span.v-demo", null, "Demo") : null)
     ];

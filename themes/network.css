@@ -1,5 +1,5 @@
 /* Otto Home System map (themes/network.js), loaded ahead of combined.css, whose variables
-   and Public Sans import it uses. Names and status words 18px, legend 16px. No red, no green, no purple. */
+   and Public Sans import it uses. Names, status words and legend 18px. No red, no green, no purple. */
 
 .n-health { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; color: var(--ink, #ECEDEE); margin-top: 4px; }
 .n-hshape { display: inline-block; flex: none; width: 14px; height: 14px; }
@@ -10,7 +10,7 @@
 .n-legend { background: var(--card, #1C1E21); border: 1px solid var(--line, #2A2D31); border-radius: 16px; padding: 12px 14px; }
 .n-legend .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .n-legend-lines { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line, #2A2D31); }
-.n-key { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; color: var(--soft, #C9CDD2); }
+.n-key { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; color: var(--soft, #C9CDD2); }
 
 /* Map */
 .n-map-wrap { margin: 8px 0 0; }

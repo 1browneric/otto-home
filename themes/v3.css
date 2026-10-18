@@ -125,6 +125,8 @@ html[data-theme="v3"] body {
   background: var(--amber-soft); box-shadow: inset 0 0 0 1px rgba(242, 180, 65, 0.3);
 }
 [data-theme="v3"] .v-conflict-x { font-size: 18px; color: var(--ink); }
+[data-theme="v3"] .v-conflict-row { padding: 8px 0; border-top: 1px solid var(--line); }
+[data-theme="v3"] .v-conflict-row:first-of-type { border-top: 0; }
 [data-theme="v3"] .v-foot { font-size: 18px; color: var(--soft); padding-top: 12px; margin-top: 4px; border-top: 1px solid var(--line); }
 [data-theme="v3"] .v-ev-sm { padding: 8px 0; border-top: 0; }
 [data-theme="v3"] .v-day { padding: 8px 0; border-top: 1px solid var(--line); }
@@ -262,8 +264,8 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-rec-vals span:last-child { color: var(--ink); font-weight: 600; }
 
 /* ---------- lists chips ---------- */
-[data-theme="v3"] .v-chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 16px; margin: 0 -16px; scrollbar-width: none; }
-[data-theme="v3"] .v-chips::-webkit-scrollbar { display: none; }
+/* chips wrap onto a second row: every list is on screen, no sideways scroll, no cut word */
+[data-theme="v3"] .v-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 16px; }
 [data-theme="v3"] .v-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 20px; font-size: 18px; font-weight: 600; color: var(--soft); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
 [data-theme="v3"] .v-chip.v-on { background: var(--blue); color: #fff; box-shadow: none; }
 [data-theme="v3"] .v-chip-n { font-weight: 500; opacity: 0.75; }
