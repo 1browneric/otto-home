@@ -350,8 +350,12 @@
   function pickTab() {
     var x = location.hash.replace("#", "");
     x = OLD_TAB[x] || x;
-    if (!state.tab) state.tab = TABS.some(function (t) { return t.id === x; }) ? x : "today";
+    // Any word-shaped hash is kept: the look may still be loading, and render() maps an
+    // id the look does not have (its alias, else its first tab).
+    if (!state.tab) state.tab = /^[a-z]+$/.test(x) ? x : "today";
   }
+  // A theme may bring its own tab set ({ id, short, title, fn }); the default is TABS.
+  function tabs() { var t = activeTheme(); return (t && t.tabs) || TABS; }
   function go(id) {
     state.tab = id;
     try { history.replaceState(null, "", location.pathname + location.search + "#" + id); } catch (e) { /* none */ }
@@ -372,8 +376,15 @@
       return;
     }
     var t = activeTheme();
-    var fn = { today: "renderToday", lists: "renderLists", activity: "renderActivity", system: "renderSystem" }[state.tab] || "renderToday";
-    mount($view, (t[fn] || classic[fn])(state.snap, api));
+    var own = (t.tabs || []).filter(function (x) { return x.id === state.tab; })[0];
+    // A theme's alias maps an old tab id (a saved hash) onto one of its own tabs.
+    if (t.tabs && !own && t.alias && t.alias[state.tab]) {
+      state.tab = t.alias[state.tab];
+      own = t.tabs.filter(function (x) { return x.id === state.tab; })[0];
+    }
+    if (t.tabs && !own) { state.tab = t.tabs[0].id; own = t.tabs[0]; }
+    var fn = own ? own.fn : ({ today: "renderToday", lists: "renderLists", activity: "renderActivity", system: "renderSystem" }[state.tab] || "renderToday");
+    mount($view, (t[fn] || classic[fn] || classic.renderToday)(state.snap, api));
   }
 
   function freshness() {
@@ -388,7 +399,7 @@
     var f = freshness();
     var redesigned = true;
     var sub = DEMO ? "Demo" : state.loading ? "Refreshing" : state.offline ? "Offline - last snapshot" : state.error ? "Error: " + state.error : null;
-    var tab = TABS.filter(function (t) { return t.id === state.tab; })[0];
+    var tab = tabs().filter(function (t) { return t.id === state.tab; })[0];
     mount($top,
       redesigned
         ? h("div.fresh", null, h("div.top-title", null, tab ? tab.title : ""), sub ? h("div.meta", null, sub) : null)
@@ -401,7 +412,7 @@
     var t = activeTheme();
     if (t.renderTabs) { mount($tabs, t.renderTabs(state.snap, api)); return; }
     var n = unsentCount();
-    mount($tabs, TABS.map(function (t) {
+    mount($tabs, tabs().map(function (t) {
       return h("button.tab" + (state.tab === t.id ? ".on" : ""), {
         type: "button", "aria-current": state.tab === t.id ? "page" : null,
         on: { click: function () { go(t.id); } }
@@ -914,7 +925,7 @@
     reason: function (id) { return state.reasons[id] || null; },
     applyPhrase: applyPhrase, tokenFor: tokenFor,
     send: send, tap: tap, refresh: function () { return load(); },
-    go: go, tab: function () { return state.tab; }, render: function () { render(); },
+    go: go, tab: function () { return state.tab; }, tabs: function () { return tabs(); }, render: function () { render(); },
     ui: ui, themeName: function () { return theme.name; }, themeChoices: themeChoices, setTheme: setTheme,
     lookPicker: lookPicker
   };
@@ -972,7 +983,11 @@
       });
     } catch (e) { /* none */ }
   }
-  window.addEventListener("hashchange", function () { var x = location.hash.replace("#", ""); x = OLD_TAB[x] || x; if (TABS.some(function (t) { return t.id === x; })) { state.tab = x; render(); } });
+  window.addEventListener("hashchange", function () {
+    var x = location.hash.replace("#", ""), t = activeTheme();
+    x = (t.alias && t.alias[x]) || OLD_TAB[x] || x;
+    if (tabs().some(function (y) { return y.id === x; })) { state.tab = x; render(); }
+  });
   loadTheme(wantedTheme());
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible" && !state.signin && !DEMO) load();

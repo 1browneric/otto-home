@@ -1,12 +1,12 @@
 /* Otto Home service worker. Caches the shell only; never data.
    Shell: network first (a new deploy shows on the next open), the cache only when offline.
    Anything else (sample-snapshot.json, the /exec URL on another origin) goes to the network untouched. */
-var CACHE = "otto-home-shell-v8";
+var CACHE = "otto-home-shell-v9";
 // Exactly the deployed files (scripts/deploy_otto_home.sh SHELL_FILES) but sw.js, plus "./".
 var SHELL = [
   "./", "index.html", "app.js", "styles.css", "manifest.webmanifest",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
-  "themes/list.js", "themes/combined.css", "themes/combined.js", "themes/network.css", "themes/network.js"
+  "themes/list.js", "themes/v3.css", "themes/v3.js", "themes/network.css", "themes/network.js"
 ];
 var SHELL_URLS = SHELL.map(function (p) { return new URL(p, self.registration.scope).href; });
 
