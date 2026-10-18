@@ -1,4 +1,4 @@
-/* Otto Home - the phone app over Otto's snapshot.
+/* OttoOS (formerly Otto Home) - the phone app over Otto's snapshot.
    Static shell. The only network target is the Apps Script /exec URL entered
    once; no URL, key or data is compiled into this file. ?demo=1 renders the local
    sample-snapshot.json and never contacts /exec. */
@@ -528,7 +528,7 @@
       r && r.ok === false ? h("div.status-line", null, "Not sent - " + r.err)
         : state.reasons[it.id] ? h("div.status-line", null, state.reasons[it.id]) : null,
       h("div.actions", null, acts.map(function (a) {
-        return h("button.btn" + (a === "approve" ? ".primary" : a === "snooze" ? ".teal" : ""), {
+        return h("button.btn" + (a === "approve" ? ".primary" : a === "snooze" ? ".later" : ""), {
           type: "button", on: { click: function () { send(it.id, a, tokenFor(it, a)); } }
         }, VERB_LABEL[a]);
       })),
@@ -687,13 +687,14 @@
   var LIST_SHOW = 5;
   function taskLists(s) {
     var t = s.tasks || {};
-    return { connected: t.connected === true, lists: (t.lists || []).filter(function (l) { return l && l.name; }) };
+    // pending: the snapshot predates the tasks block (an old snapshot), not "not connected".
+    return { connected: t.connected === true, pending: !s.tasks, lists: (t.lists || []).filter(function (l) { return l && l.name; }) };
   }
   function listToggle(key) { ui.listOpen = ui.listOpen || {}; ui.listOpen[key] = !ui.listOpen[key]; render(); }
   function listShown(l) { var all = l.items || []; return (ui.listOpen || {})[l.key] ? all : all.slice(0, LIST_SHOW); }
   function viewLists(s) {
     var tl = taskLists(s), out = [h("h1", null, "Lists")];
-    if (!tl.connected) { out.push(h("div.empty", null, "Tasks not connected")); return out; }
+    if (!tl.connected) { out.push(h("div.empty", null, tl.pending ? "Lists load on the next update" : "Tasks not connected")); return out; }
     tl.lists.forEach(function (l) {
       var items = l.items || [], n = +l.count || 0, c = +l.clinical || 0;
       if (!n && !c) { out.push(h("div.card", null, h("h2", null, l.name + " - " + (l.error ? "not read" : "empty")))); return; }
@@ -760,10 +761,12 @@
   }
   function openItems() { return pendingItems().filter(isOpen); }
   function minutesToClear(n) { return n ? Math.ceil(n * 20 / 60) : 0; }
+  // "Done today" = the Activity tab's Done rows under today's date: the same timeline, the
+  // same test (result ok), the same Chicago day. The snapshot's working.today.done agrees.
   function doneToday(s) {
-    var t = (s.working || {}).today || {}, cleared = 0;
-    pendingItems().forEach(function (i) { var r = state.sent[i.id]; if (r && r.ok !== false) cleared++; });
-    return (s.added_today || []).length + (+t.approvals || 0) + cleared;
+    var today = dayKey(new Date()), n = 0;
+    (s.timeline || []).forEach(function (e) { if (e && e.result === "ok" && dayKey(e.ts) === today) n++; });
+    return n;
   }
   function handled(s) { return (s.added_today || []).slice().sort(function (a, b) { return (d(b.at) || 0) - (d(a.at) || 0); }); }
   function undoable(it) { return !!(it.undo_token && !(it.undo_until && minutesOld(it.undo_until) > 0)); }
@@ -946,7 +949,7 @@
         })
         .catch(function () { mount(note, "Could not reach the Web App"); });
     } } },
-      h("h1", null, "Otto Home"),
+      h("h1", null, "OttoOS"),
       h("label", { "for": "exec" }, "Web App URL"), exec,
       h("label", { "for": "key" }, "Key"), key,
       h("button.btn.primary", { type: "submit" }, "Save"),
@@ -957,7 +960,17 @@
   /* ---------- boot ---------- */
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) { /* none */ }
   if ("serviceWorker" in navigator) {
-    try { navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(function () {}); } catch (e) { /* none */ }
+    try { navigator.serviceWorker.register("sw.js", { scope: "./", updateViaCache: "none" }).catch(function () {}); } catch (e) { /* none */ }
+    // A new service worker took over (a deploy): reload once so the new shell shows now.
+    // Only when one was already in control, so the first install never reloads.
+    try {
+      var hadController = !!navigator.serviceWorker.controller, reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (!hadController || reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+    } catch (e) { /* none */ }
   }
   window.addEventListener("hashchange", function () { var x = location.hash.replace("#", ""); x = OLD_TAB[x] || x; if (TABS.some(function (t) { return t.id === x; })) { state.tab = x; render(); } });
   loadTheme(wantedTheme());

@@ -1,7 +1,9 @@
 /* Otto Home look: Combined (Direction 1, default). Standalone: styles.css is switched off.
    Page #111214, cards #1C1E21 with #2A2D31 borders, 16px radius.
    Georgia for titles and card questions, Public Sans for everything else.
-   Read text 18px+, metadata 15px. No red, no green, no purple: every status is shape + word. */
+   No teal (2026-10-17): done is bright blue #2F7BFF with a white check, working now
+   light blue #8AB4FF; states that share blue differ by shape + word.
+   Read text 18px+ (titles, labels, dates, status words, tabs), metadata 15px, legends 16px. No red, no green, no purple: every status is shape + word. */
 @import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap");
 
 :root {
@@ -14,7 +16,8 @@
   --muted: #A3A9B0;
   --blue: #2E62C0;
   --blue-hi: #8DB3F5;
-  --teal: #3FB8AE;
+  --done: #2F7BFF;      /* done / handled: filled check circle */
+  --working: #8AB4FF;   /* working now: diamond, dashed link */
   --amber: #E3A23B;
   --serif: Georgia, "Times New Roman", serif;
   --sans: "Public Sans", -apple-system, "Helvetica Neue", Arial, sans-serif;
@@ -41,10 +44,10 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 }
 .c-top-main { flex: 1; min-width: 0; }
 .c-top-title { font-family: var(--serif); font-size: 30px; line-height: 1.1; }
-.c-top-sub { font-size: 15px; color: var(--muted); margin-top: 3px; }
+.c-top-sub { font-size: 18px; color: var(--muted); margin-top: 3px; }
 .c-refresh {
   min-height: 44px; padding: 0 16px; border-radius: 12px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--card); color: var(--blue-hi); font-size: 16px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--card); color: var(--blue-hi); font-size: 18px; font-weight: 600;
 }
 
 .view {
@@ -57,7 +60,7 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .c-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 0 0 12px; }
 .c-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .c-card-title { font-family: var(--serif); font-weight: normal; font-size: 22px; margin: 0; line-height: 1.25; }
-.c-label { display: flex; align-items: center; justify-content: space-between; margin: 26px 2px 10px; font-size: 15px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.c-label { display: flex; align-items: center; justify-content: space-between; margin: 26px 2px 10px; font-size: 18px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .c-meta { font-size: 15px; color: var(--muted); }
 .c-gap { margin-top: 10px; }
 .c-empty { color: var(--muted); }
@@ -68,9 +71,9 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 
 /* Stat tiles */
 .c-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 4px; }
-.c-tile { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 12px 12px; }
+.c-tile { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 12px 12px; min-width: 0; }
 .c-tile-n { font-size: 32px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.c-tile-l { font-size: 15px; color: var(--muted); margin-top: 4px; font-weight: 500; }
+.c-tile-l { font-size: 18px; color: var(--muted); margin-top: 4px; font-weight: 500; }
 
 .c-health { display: flex; align-items: center; gap: 10px; margin: 14px 2px 0; font-size: 18px; color: var(--soft); }
 .c-health.big { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink); }
@@ -110,12 +113,13 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .c-line-preview { background: var(--raise); border-radius: 12px; padding: 12px 14px; font-size: 18px; }
 
 /* Decided card */
-.c-done { display: flex; align-items: flex-start; gap: 12px; border-color: #2B4F4C; }
+.c-done { display: flex; align-items: flex-start; gap: 12px; border-color: #2A4A80; }
 .c-done-word { font-size: 18px; font-weight: 600; }
 
 /* Rows */
-.c-list { padding: 4px 16px; }
 .c-rows { list-style: none; margin: 0; padding: 0; }
+/* After .c-rows: a card that is also a row list (Activity) keeps its inner padding. */
+.c-list, .c-card.c-rows { padding: 4px 16px; }
 .c-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 0; border-top: 1px solid var(--line); }
 .c-row:first-child { border-top: 0; }
 .c-rows.tight .c-row { min-height: 48px; padding: 8px 0; }
@@ -123,8 +127,8 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .c-row-title { font-size: 18px; overflow-wrap: anywhere; }
 .c-link { background: none; border: 0; color: var(--blue-hi); font-size: 18px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; min-height: 44px; padding: 0 4px; cursor: pointer; }
 .c-more { display: block; padding: 6px 0 10px; }
-.c-time { flex: none; width: 76px; font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; align-self: flex-start; padding-top: 3px; }
-.c-result { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--soft); align-self: flex-start; padding-top: 3px; }
+.c-time { flex: none; width: 92px; white-space: nowrap; font-size: 18px; color: var(--muted); font-variant-numeric: tabular-nums; align-self: flex-start; padding-top: 3px; }
+.c-result { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 18px; color: var(--soft); align-self: flex-start; padding-top: 3px; }
 .c-timeline .c-row { align-items: flex-start; }
 .c-count { flex: none; min-width: 44px; height: 44px; border-radius: 12px; background: var(--raise); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
@@ -148,19 +152,19 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .c-bar-v { position: absolute; bottom: -50px; font-size: 15px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .c-bar-d { position: absolute; bottom: -26px; font-size: 15px; color: var(--muted); }
 .c-bars { margin-left: 0; }
-.c-goal { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--teal); z-index: 1; pointer-events: none; }
+.c-goal { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--soft); z-index: 1; pointer-events: none; }
 .c-goal span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.c-shape.goal { width: 18px; height: 0; border-top: 2px dashed var(--teal); }
+.c-shape.goal { width: 18px; height: 0; border-top: 2px dashed var(--soft); }
 
 /* Shapes (combined-only) */
 .c-shape { display: inline-block; flex: none; width: 16px; height: 16px; position: relative; }
-.c-shape.ok { border-radius: 50%; background: var(--teal); width: 14px; height: 14px; }
+.c-shape.ok { border-radius: 50%; background: var(--done); width: 14px; height: 14px; }
 .c-shape.problem { width: 14px; height: 14px; background: var(--amber); }
 .c-shape.due { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--amber); }
-.c-shape.check { width: 26px; height: 26px; border-radius: 50%; background: var(--teal); }
-.c-shape.check::after { content: ""; position: absolute; left: 9px; top: 5px; width: 6px; height: 12px; border: solid #0E2A28; border-width: 0 3px 3px 0; transform: rotate(45deg); }
-.c-shape.undone { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--teal); }
-.c-shape.r-ok { width: 12px; height: 12px; border-radius: 50%; background: var(--teal); }
+.c-shape.check { width: 26px; height: 26px; border-radius: 50%; background: var(--done); }
+.c-shape.check::after { content: ""; position: absolute; left: 9px; top: 5px; width: 6px; height: 12px; border: solid #FFFFFF; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.c-shape.undone { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--done); }
+.c-shape.r-ok { width: 12px; height: 12px; border-radius: 50%; background: var(--done); }
 .c-shape.r-dry { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--blue-hi); background: linear-gradient(90deg, var(--blue-hi) 50%, transparent 50%); }
 .c-shape.r-skip { width: 12px; height: 3px; background: var(--muted); }
 .c-shape.r-fail { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid var(--amber); }
@@ -170,21 +174,21 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .toast .c-shape.check { width: 22px; height: 22px; }
 .toast .c-shape.check::after { left: 7px; top: 3px; width: 5px; height: 11px; }
 
-.c-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 2px 4px; font-size: 15px; color: var(--muted); }
+.c-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 2px 4px; font-size: 16px; color: var(--muted); }
 .c-key { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Shared state shapes from api.st / api.legend */
-.st { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 15px; color: var(--soft); }
+.st { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 18px; color: var(--soft); }
 .shape { display: inline-block; flex: none; width: 13px; height: 13px; position: relative; }
 .shape.live { border-radius: 50%; background: var(--blue-hi); }
 .shape.dark { border-radius: 50%; border: 2px solid var(--blue-hi); }
 .shape.dormant { background: var(--muted); }
 .shape.retired { height: 3px; background: var(--soft); }
-.shape.running { width: 11px; height: 11px; background: var(--teal); transform: rotate(45deg); margin: 0 1px; }
+.shape.running { width: 11px; height: 11px; background: var(--working); transform: rotate(45deg); margin: 0 1px; }
 .shape.needs_you { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 13px solid var(--amber); }
 .shape.dry_run { border-radius: 50%; border: 2px solid var(--blue-hi); background: linear-gradient(90deg, var(--blue-hi) 50%, transparent 50%); }
 .shape.unknown { border: 2px dashed var(--muted); }
-.c-legend-wrap .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin: 0 0 12px; }
+.c-legend-wrap .legend { font-size: 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin: 0 0 12px; }
 
 /* Look picker (demo only) */
 .look { margin-top: 26px; }
@@ -203,7 +207,7 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
   display: grid; grid-template-columns: repeat(4, 1fr);
   padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
-.tab { background: none; border: 0; min-height: var(--tabbar-h); font-size: 16px; font-weight: 600; color: var(--muted); cursor: pointer; position: relative; }
+.tab { background: none; border: 0; min-height: var(--tabbar-h); font-size: 18px; font-weight: 600; color: var(--muted); cursor: pointer; position: relative; }
 .tab.on { color: var(--ink); }
 .tab.on::before { content: ""; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; border-radius: 0 0 3px 3px; background: var(--blue-hi); }
 .tab .badge { display: inline-block; margin-left: 4px; min-width: 22px; padding: 0 6px; border-radius: 11px; background: var(--blue); color: #FFFFFF; font-size: 14px; line-height: 22px; }
@@ -234,3 +238,7 @@ button { font-family: inherit; font-size: 18px; color: inherit; }
 .c-otto { flex: none; font-size: 15px; font-weight: 600; color: var(--blue-hi); border: 1px solid var(--blue-hi); border-radius: 6px; padding: 0 6px; line-height: 1.5; }
 .c-clin { margin-top: 8px; }
 .c-compact .c-bars { height: 120px; }
+
+/* Legends may sit at 16px; status words elsewhere are 18px. */
+.c-legend-wrap .legend .st, .n-legend .st { font-size: 16px; }
+.c-timeline .c-row { gap: 10px; }

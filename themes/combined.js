@@ -16,6 +16,9 @@
     refused: { shape: "r-fail", word: "Refused" }
   };
 
+  // Gate states: Live / Dry run / Off, each with its shape.
+  var GATE_WORD = { live: "Live", dry_run: "Dry run", dark: "Off" };
+
   function sh(api, cls) { return api.h("span.c-shape." + cls, { "aria-hidden": "true" }); }
   function item(api, cls, word) { return api.h("span.c-key", null, sh(api, cls), word); }
   function keyRow(api, pairs) { return api.h("div.c-legend", { "aria-label": "Legend" }, pairs.map(function (p) { return item(api, p[0], p[1]); })); }
@@ -172,7 +175,7 @@
   }
   function renderLists(s, api) {
     var tl = api.taskLists(s);
-    if (!tl.connected) return [api.h("div.c-card.c-empty", null, "Tasks not connected")];
+    if (!tl.connected) return [api.h("div.c-card.c-empty", null, tl.pending ? "Lists load on the next update" : "Tasks not connected")];
     var total = 0;
     tl.lists.forEach(function (l) { total += (+l.count || 0) + (+l.clinical || 0); });
     return [label(api, api.plural(total, "open task")), tl.lists.map(function (l) { return listCard(api, l); })];
@@ -202,7 +205,8 @@
     var g = s.gates || [];
     return [label(api, "Gates, read only"),
       g.length ? api.h("div.c-card.c-list", null, api.h("ul.c-rows", null, g.map(function (x) {
-        return api.h("li.c-row", null, api.h("div.c-row-main", null, api.h("div.c-row-title.c-mono", null, x.name)), api.st(x.state));
+        return api.h("li.c-row", null, api.h("div.c-row-main", null, api.h("div.c-row-title", null, x.label || x.name)),
+          api.st(x.state, GATE_WORD[x.state] || null));
       }))) : api.h("div.c-card.c-empty", null, "No gates reported")];
   }
   function clearCard(api, s) {

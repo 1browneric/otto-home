@@ -1,12 +1,12 @@
-/* Otto Home. Georgia throughout. Ink #0F2F45, navy #1F4E9D, teal #1C7C7D.
+/* Otto Home. Georgia throughout. Ink #0F2F45, navy #1F4E9D, done blue #2F7BFF (no teal).
    No red, no green, no purple. Every state = text label + shape.
    Size hierarchy: question 22px, preview and anything to read 18px,
    optional metadata 15px muted. Soft panels instead of borders. */
 :root {
   --ink: #0F2F45;
   --navy: #1F4E9D;
-  --teal: #1C7C7D;
-  --teal-tint: #E3F1F1;
+  --done: #2F7BFF;
+  --done-tint: #E6EFFF;
   --navy-tint: #E8EEF8;
   --slate: #4A6274;
   --line: #D5DEE6;
@@ -61,7 +61,7 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
   padding: 14px 14px 12px;
   margin: 12px 0;
 }
-.card.sent { background: var(--teal-tint); border-color: var(--teal); }
+.card.sent { background: var(--done-tint); border-color: var(--done); }
 .card.err { border: 2px solid var(--ink); }
 
 /* Labeled lines */
@@ -84,7 +84,7 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
   font-size: 18px; cursor: pointer; flex: 1 1 0; min-width: 96px;
 }
 .btn.primary { background: var(--navy); color: #FFFFFF; }
-.btn.teal { border-color: var(--teal); color: var(--teal); }
+.btn.later { border-color: var(--done); color: var(--done); }
 .btn.small { flex: 0 0 auto; min-height: 44px; padding: 8px 16px; }
 .btn:active { transform: translateY(1px); }
 .btn[disabled] { opacity: 0.55; }
@@ -98,7 +98,7 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 .shape.dark { border-radius: 50%; border: 2px solid var(--navy); background: transparent; }
 .shape.dormant { background: var(--slate); }
 .shape.retired { height: 3px; background: var(--ink); top: -3px; }
-.shape.running { width: 12px; height: 12px; background: var(--teal); transform: rotate(45deg); margin: 0 1px; }
+.shape.running { width: 12px; height: 12px; background: var(--done); transform: rotate(45deg); margin: 0 1px; }
 .shape.needs_you { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--ink); }
 .shape.dry_run { border-radius: 50%; border: 2px solid var(--navy); background: linear-gradient(90deg, var(--navy) 50%, transparent 50%); }
 .shape.unknown { border: 2px dashed var(--slate); }
@@ -107,12 +107,12 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 
 /* Org chart */
 .org-lead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-.org-members { list-style: none; margin: 8px 0 0 0; padding: 0 0 0 14px; border-left: 3px solid var(--teal-tint); }
+.org-members { list-style: none; margin: 8px 0 0 0; padding: 0 0 0 14px; border-left: 3px solid var(--done-tint); }
 .org-members li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; flex-wrap: wrap; }
 
 /* Timeline */
 .day-head { font-size: 20px; color: var(--navy); font-weight: bold; margin: 22px 0 6px; }
-.tl { border-left: 3px solid var(--teal); padding: 6px 0 6px 12px; margin: 10px 0; background: var(--card); border-radius: 0 10px 10px 0; padding-right: 12px; }
+.tl { border-left: 3px solid var(--done); padding: 6px 0 6px 12px; margin: 10px 0; background: var(--card); border-radius: 0 10px 10px 0; padding-right: 12px; }
 .tl .when { color: var(--slate); }
 
 /* Tabs */
@@ -160,9 +160,9 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 
 .health { display: flex; align-items: center; gap: 10px; margin-top: 8px !important; font-weight: bold; }
 .panel.today > .health:first-child { margin-top: 0 !important; font-size: 22px; }
-.shape.ok { border-radius: 50%; background: var(--teal); }
+.shape.ok { border-radius: 50%; background: var(--done); }
 .shape.warn { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--amber); }
-.shape.done { border-radius: 50%; border: 2px solid var(--teal); background: transparent; }
+.shape.done { border-radius: 50%; border: 2px solid var(--done); background: transparent; }
 .problems { list-style: none; margin: 10px 0 0; padding: 0; }
 .problems li { background: var(--amber-tint); border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
 
@@ -177,7 +177,7 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 .card .preview { font-size: 18px; margin-top: 8px; color: var(--ink); }
 .card .why { font-size: 15px; color: var(--slate); margin-top: 6px; }
 .card .actions { margin-top: 14px; }
-.card.done { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--teal-tint); box-shadow: none; }
+.card.done { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--done-tint); box-shadow: none; }
 
 .linkish { background: none; border: 0; padding: 10px 0; min-height: 44px; font-size: 15px; color: var(--navy); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .linkish.disclose { font-size: 18px; }
@@ -189,7 +189,7 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 .compact { list-style: none; margin: 0; padding: 0; }
 .compact li { display: flex; align-items: center; gap: 10px; min-height: 48px; border-top: 1px solid var(--panel); }
 .compact li:first-child { border-top: 0; }
-.compact li.done { color: var(--teal); }
+.compact li.done { color: var(--done); }
 .ell { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .compact .btn.small { min-height: 40px; }
 

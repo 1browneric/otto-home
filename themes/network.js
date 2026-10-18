@@ -1,6 +1,6 @@
 /* Otto Home System map (the production System tab, used by themes/combined.js).
    Otto in the center, the teams from the snapshot around it, linked by lines. Teams working
-   right now get a dashed teal link. Tap a team for what it did today.
+   right now get a dashed light blue link. Tap a team for what it did today.
    Names, order and counts all come from the snapshot (working.network.teams, else
    org.departments); this file names no team. Rendering only: no fetch, no storage, no
    writes. SVG is built with createElementNS and textContent, never innerHTML of data. */
@@ -98,7 +98,7 @@
         on ? svg("circle", { cx: p[0], cy: p[1], r: 20, "class": "n-ring" }) : null,
         nodeShape(state, p[0], p[1], on),
         svg("text", { x: p[0], y: p[1] + 36, "class": "n-name", "text-anchor": "middle", text: t.name }),
-        svg("text", { x: p[0], y: p[1] + 54, "class": "n-word", "text-anchor": "middle", text: word })
+        svg("text", { x: p[0], y: p[1] + 57, "class": "n-word", "text-anchor": "middle", text: word })
       ]));
     });
     var center = svg("g", { "class": "n-otto", role: "button", tabindex: "0",
