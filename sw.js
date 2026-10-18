@@ -6,7 +6,8 @@ var CACHE = "otto-home-shell-v11";
 var SHELL = [
   "./", "index.html", "app.js", "styles.css", "manifest.webmanifest",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
-  "themes/list.js", "themes/v3.css", "themes/v3.js", "themes/network.css", "themes/network.js"
+  "themes/list.js", "themes/v3.css", "themes/v3.js", "themes/network.css", "themes/network.js",
+  "themes/ask.css", "themes/ask.js"
 ];
 var SHELL_URLS = SHELL.map(function (p) { return new URL(p, self.registration.scope).href; });
 

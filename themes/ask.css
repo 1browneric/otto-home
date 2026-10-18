@@ -1,0 +1,24 @@
+/* Ask Otto box (themes/ask.js) in the OttoOS v3 look: same tokens, 18px+ text, no icons. */
+[data-theme="v3"] .a-thread { display: flex; flex-direction: column; }
+[data-theme="v3"] .a-ex { padding: 10px 0; border-top: 1px solid var(--line); }
+[data-theme="v3"] .a-thread > .a-ex:first-child { border-top: 0; padding-top: 4px; }
+[data-theme="v3"] .a-q { display: flex; align-items: baseline; gap: 16px; }
+[data-theme="v3"] .a-q-text { flex: 1; min-width: 0; font-size: 18px; color: var(--soft); line-height: 1.35; overflow-wrap: anywhere; }
+[data-theme="v3"] .a-q-t { flex: none; font-size: 18px; color: var(--muted); }
+[data-theme="v3"] .a-a { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--blue); }
+[data-theme="v3"] .a-line { font-size: 18px; font-weight: 500; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+[data-theme="v3"] .a-line + .a-line { margin-top: 2px; }
+[data-theme="v3"] .a-a .v-status { white-space: normal; }
+[data-theme="v3"] .a-check { margin-left: 16px; min-height: 0; }
+[data-theme="v3"] .a-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 12px; }
+[data-theme="v3"] .a-text {
+  flex: 1; min-width: 0; min-height: 48px; max-height: 160px; resize: vertical; padding: 12px;
+  font: 400 18px/1.35 var(--font); color: var(--ink); background: var(--card2); border: 0; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--line2); outline: none;
+}
+[data-theme="v3"] .a-text::placeholder { color: var(--muted); }
+[data-theme="v3"] .a-text:focus { box-shadow: inset 0 0 0 2px var(--blue); }
+[data-theme="v3"] .a-send { flex: none; width: 96px; }
+[data-theme="v3"] .v-btn.v-primary.a-send[disabled] { background: var(--card2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line2); }
+[data-theme="v3"] .a-note { font-size: 18px; color: var(--muted); margin-top: 8px; }
+[data-theme="v3"] .a-card { margin-bottom: 16px; }

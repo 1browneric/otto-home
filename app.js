@@ -225,7 +225,7 @@
       state.loading = true; render();
       return fetch("sample-snapshot.json", { cache: "no-store" })
         .then(function (r) { if (!r.ok) throw new Error("missing"); return r.json(); })
-        .then(function (j) { state.snap = demoProblem(rebaseDemo(j)); state.error = null; })
+        .then(function (j) { state.snap = demoProblem(rebaseDemo(j)); state.error = null; askDemo(state.snap); })
         .catch(function () { state.error = "Demo data not found"; })
         .then(function () { state.loading = false; pickTab(); render(); });
     }
@@ -246,7 +246,114 @@
         pruneSent();
       })
       .catch(function () { state.offline = true; })
-      .then(function () { state.loading = false; if (!state.signin) { pickTab(); render(); } });
+      .then(function () { state.loading = false; if (!state.signin) { pickTab(); render(); askLoad(); } });
+  }
+
+  /* ---------- Ask Otto ----------
+     The thread lives in the Asks tab of the Apps Script sheet. Send posts
+     {k, kind:"ask", text} with the same key as a tap; the VM answers within about
+     1-2 minutes (agents/otto/ask). While the newest ask is pending the app reads
+     ?kind=asks every 10 s, and stops when it is answered or after 5 minutes.
+     ?demo=1 never contacts /exec: ?ask=thinking shows a pending ask, ?ask=night
+     the same ask outside Otto's hours, ?ask=failed a failed one. */
+  var ASK_POLL_MS = 10000, ASK_POLL_MAX_MS = 5 * 60000, ASK_MAX = 1000;
+  state.ask = { rows: [], draft: "", sending: false, err: null, pollStart: 0, timer: null, stopped: false, demoHour: null };
+  function askInHours(at) {
+    if (state.ask.demoHour != null) return state.ask.demoHour >= 6 && state.ask.demoHour < 23;
+    var m = centralMinutes(at ? new Date(at) : new Date());
+    return m >= 6 * 60 && m < 23 * 60;
+  }
+  function askLatest() { var r = state.ask.rows; return r.length ? r[r.length - 1] : null; }
+  function askPending() { var x = askLatest(); return !!x && x.status === "pending"; }
+  function askRender() { if (!state.signin && state.snap) render(); }
+  function askFocus() {
+    var el = document.activeElement;
+    if (!el || el.id !== "ask-text") return null;
+    return { start: el.selectionStart, end: el.selectionEnd };
+  }
+  function askRefocus(k) {
+    if (!k) return;
+    var el = document.getElementById("ask-text");
+    if (!el) return;
+    try { el.focus({ preventScroll: true }); el.setSelectionRange(k.start, k.end); } catch (e) { /* none */ }
+  }
+  function askRows(j) {
+    return ((j && j.rows) || []).filter(function (r) { return r && typeof r.id === "string"; }).slice(-10);
+  }
+  function askLoad() {
+    if (DEMO) return Promise.resolve();
+    var c = creds();
+    if (!c) return Promise.resolve();
+    return fetch(c.exec + (c.exec.indexOf("?") >= 0 ? "&" : "?") + "k=" + encodeURIComponent(c.key) + "&kind=asks",
+      { method: "GET", redirect: "follow", cache: "no-store", credentials: "omit" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (isBadKey(j)) { forget("Key not accepted"); return; }
+        if (j && j.ok) { state.ask.rows = askRows(j); state.ask.err = null; }
+      })
+      .catch(function () { /* offline: keep the last thread */ })
+      .then(function () { askSchedule(); askRender(); });
+  }
+  function askSchedule() {
+    clearTimeout(state.ask.timer); state.ask.timer = null;
+    if (!askPending() || !askInHours()) { state.ask.pollStart = 0; state.ask.stopped = false; return; }
+    if (!state.ask.pollStart) state.ask.pollStart = Date.now();
+    if (Date.now() - state.ask.pollStart >= ASK_POLL_MAX_MS) { state.ask.stopped = true; return; }
+    state.ask.stopped = false;
+    state.ask.timer = setTimeout(function () { if (!DEMO) askLoad(); }, ASK_POLL_MS);
+  }
+  function askCheck() { state.ask.pollStart = 0; state.ask.stopped = false; askLoad(); }
+  function askSend(text) {
+    text = String(text || "").replace(/\s+/g, " ").trim();
+    if (!text || state.ask.sending || askPending()) return;
+    if (text.length > ASK_MAX) { state.ask.err = "Too long: " + ASK_MAX + " characters at most"; askRender(); return; }
+    state.ask.err = null;
+    if (DEMO) {
+      state.ask.rows = state.ask.rows.concat([{ id: "a-demo-" + Date.now(), ts: new Date().toISOString(), text: text, status: "pending", answer: "", attempts: 0 }]).slice(-10);
+      state.ask.draft = ""; askRender();
+      setTimeout(function () {
+        var x = askLatest();
+        if (x && x.status === "pending") { x.status = "answered"; x.answer = "Demo: Otto answers here"; x.answered_at = new Date().toISOString(); askRender(); }
+      }, 4000);
+      return;
+    }
+    var c = creds();
+    if (!c) { showSignIn(); return; }
+    state.ask.sending = true; askRender();
+    fetch(c.exec, {
+      method: "POST",
+      body: JSON.stringify({ k: c.key, kind: "ask", text: text }),
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      redirect: "follow", credentials: "omit"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (isBadKey(j)) { forget("Key not accepted"); return; }
+        if (j && j.ok) {
+          state.ask.rows = state.ask.rows.concat([{ id: j.id, ts: j.ts, text: text, status: "pending", answer: "", attempts: 0 }]).slice(-10);
+          state.ask.draft = ""; state.ask.pollStart = Date.now();
+        } else {
+          state.ask.err = j && j.error === "backlog" ? "Otto has 5 questions waiting" : j && j.error === "busy" ? "Too many sends, wait a minute" : "Not sent";
+        }
+      })
+      .catch(function () { state.ask.err = "Offline, not sent"; })
+      .then(function () { state.ask.sending = false; askSchedule(); askRender(); });
+  }
+  function askDemo(s) {
+    var rows = (s && s.demo_asks) || [], mode = params.get("ask");
+    var now = Date.now(), n = rows.length;
+    state.ask.rows = rows.map(function (r, i) {
+      var at = new Date(now - (n - i) * 25 * 60000).toISOString();
+      return { id: r.id, ts: at, text: r.text, status: r.status || "answered", answer: r.answer || "", answered_at: at, attempts: 0 };
+    });
+    if (mode === "thinking" || mode === "night" || mode === "failed") {
+      state.ask.rows.push({ id: "a-demo-last", ts: new Date(now - 40000).toISOString(),
+        text: "Put golf with Jimmy on the calendar Saturday 8am",
+        status: mode === "failed" ? "failed" : "pending",
+        answer: mode === "failed" ? "Otto could not answer that - try again" : "", attempts: mode === "failed" ? 2 : 0 });
+    }
+    if (mode === "night") state.ask.demoHour = 23;
+    state.ask.rows = state.ask.rows.slice(-10);
   }
 
   /* ---------- writes ---------- */
@@ -387,7 +494,9 @@
     }
     if (t.tabs && !own) { state.tab = t.tabs[0].id; own = t.tabs[0]; }
     var fn = own ? own.fn : ({ today: "renderToday", lists: "renderLists", activity: "renderActivity", system: "renderSystem" }[state.tab] || "renderToday");
+    var keep = askFocus();
     mount($view, (t[fn] || classic[fn] || classic.renderToday)(state.snap, api));
+    askRefocus(keep);
   }
 
   function freshness() {
@@ -930,7 +1039,15 @@
     send: send, tap: tap, refresh: function () { return load(); },
     go: go, tab: function () { return state.tab; }, tabs: function () { return tabs(); }, render: function () { render(); },
     ui: ui, themeName: function () { return theme.name; }, themeChoices: themeChoices, setTheme: setTheme,
-    lookPicker: lookPicker
+    lookPicker: lookPicker,
+    ask: {
+      rows: function () { return state.ask.rows; },
+      pending: askPending, inHours: askInHours, send: askSend, check: askCheck,
+      sending: function () { return state.ask.sending; }, error: function () { return state.ask.err; },
+      stopped: function () { return state.ask.stopped; },
+      draft: function (v) { if (v !== undefined) state.ask.draft = String(v); return state.ask.draft; },
+      MAX: ASK_MAX
+    }
   };
   window.OttoHome = {
     register: function (name, impl) { if (/^[a-z0-9-]+$/.test(name) && impl) registry[name] = impl; }
@@ -993,7 +1110,7 @@
   });
   loadTheme(wantedTheme());
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible" && !state.signin && !DEMO) load();
+    if (document.visibilityState === "visible" && !state.signin && !DEMO) { load(); if (askPending()) askCheck(); }
   });
   setInterval(function () {
     if (document.visibilityState !== "visible" || state.signin) return;

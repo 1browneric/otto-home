@@ -617,7 +617,7 @@
     var net = window.OttoNetwork && window.OttoNetwork.renderMap;
     var mapCard = card(api, "Team map and gates", link(api, ui.map ? "Hide" : "Show", function () { ui.map = !ui.map; api.render(); }),
       ui.map && net ? api.h("div.v-map", null, net(s, api)) : muted(api, api.plural((s.gates || []).length, "gate") + ", map hidden"));
-    return [heading(api, "Otto", null), dayStrip(api, s),
+    return [heading(api, "Otto", null), window.OttoAsk ? window.OttoAsk.card(s, api) : null, dayStrip(api, s),
       api.h("div.v-grid.v-grid-otto", null,
         api.h("div.v-col", null, ord(1, statusCard), ord(3, vmCard), ord(5, decisions),
           ord(6, listCard(api, "Watching", s.watching)), ord(7, listCard(api, "Goals", s.goals))),
