@@ -324,3 +324,8 @@ html[data-theme="v3"] body {
 }
 [data-theme="v3"] .v-sys-head .v-status { white-space: normal; align-items: flex-start; }
 [data-theme="v3"] .v-sys-head .v-status .v-shape { margin-top: 6px; }
+
+/* Content review lines on a full Needs-you card (golf reading watcher). */
+[data-theme="v3"] .v-review { margin: 8px 0; font-size: 18px; line-height: 1.45; }
+[data-theme="v3"] .v-review-line { margin: 4px 0; overflow-wrap: anywhere; }
+[data-theme="v3"] .v-review-src { display: flex; gap: 20px; margin-top: 6px; }

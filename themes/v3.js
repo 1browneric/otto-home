@@ -21,7 +21,7 @@
   };
   var STATE_KIND = { live: "live", running: "run", dry_run: "dry", dark: "dark", dormant: "dark", manual: "dark", late: "late", needs_you: "wait" };
   var STATE_WORD = { live: "On schedule", late: "Late", manual: "Manual", dark: "No run yet" };
-  var VERB_WORD = { approve: "Approve", deny: "Deny", snooze: "Later" };
+  var VERB_WORD = { done: "Done", approve: "Approve", deny: "Deny", snooze: "Later" };
   function shape(api, kind) { return api.h("span.v-shape.v-" + kind, { "aria-hidden": "true" }); }
   function status(api, kind, word) {
     return api.h("span.v-status.v-s-" + kind, null, shape(api, kind), api.h("span", null, word || (KIND[kind] || {}).word || ""));
@@ -285,7 +285,7 @@
   }
   function verbs(it) {
     var allowed = it.actions || ["approve", "deny", "snooze"];
-    return ["approve", "deny", "snooze"].filter(function (v) { return allowed.indexOf(v) >= 0; });
+    return ["done", "approve", "deny", "snooze"].filter(function (v) { return allowed.indexOf(v) >= 0; });
   }
   function buttons(api, it) {
     return api.h("div.v-btns", null, verbs(it).map(function (v, i) {
@@ -570,9 +570,20 @@
       api.h("div.v-need-title.v-big", null, it.title),
       api.h("div.v-need-why", null, api.whyText(it.why)),
       prev,
+      reviewBlock(api, it),
       api.h("div.v-need-by", null, "From " + api.nameOf(it.agent) + ", " + api.ago(it.created)),
       reason ? api.h("div.v-need-why", null, reason) : null,
       done || buttons(api, it));
+  }
+  // A content review (golf reading watcher): one line per field, then its sources.
+  function reviewBlock(api, it) {
+    var lines = Array.isArray(it.review) ? it.review : [], srcs = Array.isArray(it.sources) ? it.sources : [];
+    if (!lines.length && !srcs.length) return null;
+    return api.h("div.v-review", null,
+      lines.map(function (l) { return api.h("div.v-review-line", null, String(l)); }),
+      srcs.length ? api.h("div.v-review-src", null, srcs.map(function (lk) {
+        return /^https:\/\//.test(lk.url || "") ? api.h("a.v-link", { href: lk.url, target: "_blank", rel: "noopener" }, lk.label || "Link") : null;
+      })) : null);
   }
   function renderInbox(s, api) {
     var needs = openNeeds(api), filed = filedList(api, s), b = on(s.inbox) ? s.inbox : {}, ik = b.mail_counts || {};
