@@ -1,5 +1,5 @@
 /* Otto Home. Georgia throughout. Ink #0F2F45, navy #1F4E9D, done blue #2F7BFF (no teal).
-   No red, no green, no purple. Every state = text label + shape.
+   No red, no green, no purple. Every state is a word; no icons or shapes.
    Size hierarchy: question 22px, preview and anything to read 18px,
    optional metadata 15px muted. Soft panels instead of borders. */
 :root {
@@ -90,20 +90,8 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 .btn[disabled] { opacity: 0.55; }
 .status-line { font-weight: bold; margin-top: 8px; }
 
-/* State shapes: filled circle live, hollow circle dark, square dormant,
-   dash retired, diamond running, triangle needs you, half circle dry run. */
+/* States are words only: no icons or shapes (2026-10-20). */
 .st { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.shape { display: inline-block; flex: none; width: 14px; height: 14px; position: relative; top: 1px; }
-.shape.live { border-radius: 50%; background: var(--navy); }
-.shape.dark { border-radius: 50%; border: 2px solid var(--navy); background: transparent; }
-.shape.dormant { background: var(--slate); }
-.shape.retired { height: 3px; background: var(--ink); top: -3px; }
-.shape.running { width: 12px; height: 12px; background: var(--done); transform: rotate(45deg); margin: 0 1px; }
-.shape.needs_you { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--ink); }
-.shape.dry_run { border-radius: 50%; border: 2px solid var(--navy); background: linear-gradient(90deg, var(--navy) 50%, transparent 50%); }
-.shape.unknown { border: 2px dashed var(--slate); }
-
-.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 8px 0 4px; }
 
 /* Org chart */
 .org-lead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
@@ -160,9 +148,6 @@ h3 { font-size: 20px; font-weight: bold; margin: 20px 0 8px; color: var(--navy);
 
 .health { display: flex; align-items: center; gap: 10px; margin-top: 8px !important; font-weight: bold; }
 .panel.today > .health:first-child { margin-top: 0 !important; font-size: 22px; }
-.shape.ok { border-radius: 50%; background: var(--done); }
-.shape.warn { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--amber); }
-.shape.done { border-radius: 50%; border: 2px solid var(--done); background: transparent; }
 .problems { list-style: none; margin: 10px 0 0; padding: 0; }
 .problems li { background: var(--amber-tint); border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
 

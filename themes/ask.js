@@ -1,8 +1,8 @@
 /* Ask Otto, the box on the OttoOS Otto tab (helper module, loaded before v3.js through
    "needs" in themes/list.js). window.OttoAsk.card(snapshot, api) returns one card:
    the last exchanges (newest at bottom; the last 3 shown, the rest behind "Earlier"),
-   then the text box and Send. Status is a shape plus a word, the v3 way; a failed answer
-   is plain words (no shape). An exchange from an earlier Chicago day carries its written
+   then the text box and Send. Status is a word, the v3 way (no icons or shapes); a failed answer
+   is plain words. An exchange from an earlier Chicago day carries its written
    day with the time ("Sunday, October 18, 7:45 AM"); today's carry the time only.
    Rendering only: every read and write goes through api.ask (app.js); text nodes only. */
 (function () {
@@ -13,8 +13,7 @@
   var ui = { all: false };
 
   function status(api, kind, word) {
-    return api.h("span.v-status.v-s-" + kind, null,
-      api.h("span.v-shape.v-" + kind, { "aria-hidden": "true" }), api.h("span", null, word));
+    return api.h("span.v-status.v-s-" + kind, null, api.h("span", null, word));
   }
   function lines(api, text) {
     return String(text || "").split(/\n/).filter(function (x) { return x.trim(); }).map(function (x) {

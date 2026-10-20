@@ -122,19 +122,12 @@
     return n || cap(id);
   }
 
-  /* ---------- shapes ---------- */
+  /* ---------- states: words only, no icons or shapes (2026-10-20) ---------- */
   function st(stateId, label) {
-    var known = Object.prototype.hasOwnProperty.call(STATES, stateId);
-    return h("span.st", null, h("span.shape." + (known ? stateId : "unknown"), { "aria-hidden": "true" }),
-      label || STATES[stateId] || cap(stateId || "unknown"));
+    return h("span.st", null, label || STATES[stateId] || cap(stateId || "unknown"));
   }
-  function legend(ids) {
-    var seen = {};
-    var list = ids.filter(function (x) { if (!x || seen[x]) return false; seen[x] = 1; return true; });
-    var order = Object.keys(STATES);
-    list.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
-    return h("div.legend", { "aria-label": "Legend" }, list.map(function (x) { return st(x); }));
-  }
+  // The state legend only decoded the old shapes; with words alone there is nothing to key.
+  function legend() { return null; }
   function kv(rows) {
     var g = h("div.kv");
     rows.forEach(function (r) {
@@ -665,9 +658,9 @@
     return out;
   }
   function healthLine(p, countOnly) {
-    if (!p.length) return h("div.health", null, h("span.shape.ok", { "aria-hidden": "true" }), h("span", null, "All systems normal"));
+    if (!p.length) return h("div.health", null, h("span", null, "All systems normal"));
     var text = countOnly ? plural(p.length, "problem") : p.length === 1 ? "1 problem: " + p[0].short : p.length + " problems: " + p[0].short + ", and more";
-    return h("div.health.warn", null, h("span.shape.warn", { "aria-hidden": "true" }), h("span", null, text));
+    return h("div.health.warn", null, h("span", null, text));
   }
 
   /* ---------- Needs You ---------- */
@@ -716,7 +709,6 @@
     var r = state.sent[it.id];
     if (r && r.ok !== false) {
       return h("div.card.done", { "data-id": it.id },
-        h("span.shape.done", { "aria-hidden": "true" }),
         h("span", null, (DONE_WORD[r.action] || "Sent") + " - " + applyPhrase(r.at)));
     }
     var open = !!ui.details[it.id];
@@ -865,7 +857,6 @@
     doms.forEach(function (dm) { used.push(dm.owner_state); });
     return [
       h("h1", null, "Everything built"),
-      legend(used),
       h("h3", null, "Departments"),
       deps.map(function (dp) {
         return h("div.card", null,

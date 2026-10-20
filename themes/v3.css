@@ -1,6 +1,6 @@
 /* OttoOS v3, the production look. Black, white type, charcoal secondary, one bright blue
    accent (#2F7BFF); amber only for "waiting on you" (needs you, overdue,
-   conflict, late). Every status is a shape plus a word, with a legend on every tab.
+   conflict, late). Every status is a word (amber when it waits on you); no icons or shapes.
    8px grid. All text is 18px or larger. No icons: the tab bar is words. */
 html[data-theme="v3"] {
   --bg: #0B0C0E; --card: #16181B; --card2: #1D2024; --line: #24272C; --line2: #2E3238;
@@ -70,23 +70,10 @@ html[data-theme="v3"] body {
   background: rgba(255, 255, 255, 0.06); white-space: nowrap;
 }
 
-/* ---------- status shapes (legend everywhere they appear) ---------- */
+/* ---------- status words (no icons or shapes) ---------- */
 [data-theme="v3"] .v-status { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; color: var(--soft); white-space: nowrap; }
-[data-theme="v3"] .v-shape { flex: none; display: inline-block; width: 12px; height: 12px; }
-[data-theme="v3"] .v-live, [data-theme="v3"] .v-ok { border-radius: 50%; background: var(--blue); }
-[data-theme="v3"] .v-run { width: 11px; height: 11px; background: var(--blue); transform: rotate(45deg); }
-[data-theme="v3"] .v-dry { border-radius: 50%; box-shadow: inset 0 0 0 2px var(--soft); background: linear-gradient(90deg, var(--soft) 50%, transparent 50%); }
-[data-theme="v3"] .v-dark { border-radius: 50%; box-shadow: inset 0 0 0 2px var(--muted); }
-[data-theme="v3"] .v-wait, [data-theme="v3"] .v-late {
-  width: 14px; height: 12px; background: var(--amber); clip-path: polygon(50% 0, 100% 100%, 0 100%);
-}
 [data-theme="v3"] .v-s-wait, [data-theme="v3"] .v-s-late { color: var(--amber); }
 [data-theme="v3"] .v-amber { color: var(--amber); }
-[data-theme="v3"] .v-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-[data-theme="v3"] .v-legend .v-status { color: var(--soft); white-space: normal; }
-[data-theme="v3"] .v-legend-card { padding: 16px; border-radius: 16px; box-shadow: inset 0 0 0 1px var(--line); }
-[data-theme="v3"] .v-legend-card .v-legend { flex-direction: column; gap: 8px; padding: 0; border: 0; margin: 0; }
-[data-theme="v3"] .v-legend-head { font-size: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
 
 /* ---------- glance ---------- */
 [data-theme="v3"] .v-glance { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -175,7 +162,6 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-task-done .v-task-sub { margin-top: 0; justify-content: flex-end; }
 [data-theme="v3"] .v-task-done .v-status { white-space: normal; align-items: baseline; text-align: left; }
 [data-theme="v3"] .v-otto { font-size: 18px; color: var(--blue-hi); }
-[data-theme="v3"] .v-otto::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 2px; background: var(--muted); margin: 0 8px 3px 0; }
 
 /* ---------- inbox ---------- */
 [data-theme="v3"] .v-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
@@ -225,10 +211,8 @@ html[data-theme="v3"] body {
 /* ---------- system ---------- */
 [data-theme="v3"] .v-sys-head { padding: 4px 0 12px; }
 [data-theme="v3"] .v-sys-head .v-status { font-size: 20px; font-weight: 600; color: var(--ink); }
-[data-theme="v3"] .v-sys-head .v-shape { width: 14px; height: 14px; }
 [data-theme="v3"] .v-sys-head.v-warn .v-status { color: var(--amber); }
 [data-theme="v3"] .v-agent { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name state" "runs runs"; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
-[data-theme="v3"] .v-legend + .v-agent { border-top: 0; }
 [data-theme="v3"] .v-agent-name { grid-area: name; font-size: 18px; font-weight: 600; min-width: 0; }
 [data-theme="v3"] .v-agent-note { font-size: 18px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 [data-theme="v3"] .v-agent > .v-status { grid-area: state; align-self: start; font-size: 18px; }
@@ -323,7 +307,6 @@ html[data-theme="v3"] body {
   [data-theme="v3"] .v-strip-stat { justify-content: flex-start; }
 }
 [data-theme="v3"] .v-sys-head .v-status { white-space: normal; align-items: flex-start; }
-[data-theme="v3"] .v-sys-head .v-status .v-shape { margin-top: 6px; }
 
 /* Content review lines on a full Needs-you card (golf reading watcher). */
 [data-theme="v3"] .v-review { margin: 8px 0; font-size: 18px; line-height: 1.45; }

@@ -1,7 +1,7 @@
 /* Otto Home service worker. Caches the shell only; never data.
    Shell: network first (a new deploy shows on the next open), the cache only when offline.
    Anything else (sample-snapshot.json, the /exec URL on another origin) goes to the network untouched. */
-var CACHE = "otto-home-shell-v15";
+var CACHE = "otto-home-shell-v16";
 // Exactly the deployed files (scripts/deploy_otto_home.sh SHELL_FILES) but sw.js, plus "./".
 var SHELL = [
   "./", "index.html", "app.js", "styles.css", "manifest.webmanifest",

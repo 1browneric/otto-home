@@ -2,14 +2,10 @@
    and Public Sans import it uses. Names, status words and legend 18px. No red, no green, no purple. */
 
 .n-health { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; color: var(--ink, #ECEDEE); margin-top: 4px; }
-.n-hshape { display: inline-block; flex: none; width: 14px; height: 14px; }
-.n-hshape.ok { border-radius: 50%; background: var(--done, #2F7BFF); }
-.n-hshape.problem { background: var(--amber, #E3A23B); }
 .n-meta { font-size: 15px; color: var(--muted, #A3A9B0); margin: 4px 0 12px; }
 
 .n-legend { background: var(--card, #1C1E21); border: 1px solid var(--line, #2A2D31); border-radius: 16px; padding: 12px 14px; }
-.n-legend .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
-.n-legend-lines { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line, #2A2D31); }
+.n-legend-lines { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .n-key { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; color: var(--soft, #C9CDD2); }
 
 /* Map */
@@ -39,15 +35,14 @@
 .n-word { fill: var(--muted, #A3A9B0); font: 500 18px "Public Sans", -apple-system, Arial, sans-serif; }
 .n-node.on .n-name { fill: var(--blue-hi, #8DB3F5); }
 
-/* Node shapes: the same shapes as the legend (combined .shape.*) */
-.n-node-shape.s-live { fill: var(--blue-hi, #8DB3F5); }
-.n-node-shape.s-dark { fill: var(--bg, #111214); stroke: var(--blue-hi, #8DB3F5); stroke-width: 3; }
-.n-node-shape.s-dormant { fill: var(--muted, #A3A9B0); }
-.n-node-shape.s-running { fill: var(--working, #8AB4FF); }
-.n-node-shape.s-retired { fill: var(--soft, #C9CDD2); }
-.n-node-shape.s-unknown { fill: var(--bg, #111214); stroke: var(--muted, #A3A9B0); stroke-width: 2; stroke-dasharray: 4 3; }
-.n-node-shape.s-needs_you { fill: var(--amber, #E3A23B); }
-.n-node-shape.s-dry_run { fill: var(--bg, #111214); stroke: var(--blue-hi, #8DB3F5); stroke-width: 3; }
+/* Team nodes: one plain circle each, no status shapes; the fill follows the state word */
+.n-dot.s-live { fill: var(--blue-hi, #8DB3F5); }
+.n-dot.s-dark, .n-dot.s-dry_run { fill: var(--bg, #111214); stroke: var(--blue-hi, #8DB3F5); stroke-width: 3; }
+.n-dot.s-dormant { fill: var(--muted, #A3A9B0); }
+.n-dot.s-running { fill: var(--working, #8AB4FF); }
+.n-dot.s-retired { fill: var(--soft, #C9CDD2); }
+.n-dot.s-unknown { fill: var(--bg, #111214); stroke: var(--muted, #A3A9B0); stroke-width: 2; stroke-dasharray: 4 3; }
+.n-dot.s-needs_you { fill: var(--amber, #E3A23B); }
 
 /* Team card */
 .n-hint { text-align: center; font-size: 18px; color: var(--muted, #A3A9B0); margin: 4px 0 8px; }

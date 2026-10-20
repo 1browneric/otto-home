@@ -13,7 +13,8 @@
   var ui = { list: "All", map: false, past: false };
 
   /* ---------- small helpers ---------- */
-  // Status = shape + word, always, with a legend on every tab.
+  // Status = a word, coloured amber when it waits on you. No icons or shapes anywhere
+  // (2026-10-20), so there is no legend to decode them either.
   // Kinds: live (on schedule / done), run (working now), dry (dry run), dark (off), wait (waiting on you, late, overdue).
   var KIND = {
     live: { word: "Live" }, ok: { word: "OK" }, run: { word: "Running" }, dry: { word: "Dry run" },
@@ -22,19 +23,8 @@
   var STATE_KIND = { live: "live", running: "run", dry_run: "dry", dark: "dark", dormant: "dark", manual: "dark", late: "late", needs_you: "wait" };
   var STATE_WORD = { live: "On schedule", late: "Late", manual: "Manual", dark: "No run yet" };
   var VERB_WORD = { done: "Done", approve: "Approve", deny: "Deny", snooze: "Later" };
-  function shape(api, kind) { return api.h("span.v-shape.v-" + kind, { "aria-hidden": "true" }); }
   function status(api, kind, word) {
-    return api.h("span.v-status.v-s-" + kind, null, shape(api, kind), api.h("span", null, word || (KIND[kind] || {}).word || ""));
-  }
-  function legend(api) {
-    return api.h("section.v-legend-card", { "aria-label": "Legend" },
-      api.h("div.v-legend-head", null, "Legend"),
-      api.h("div.v-legend", null,
-        status(api, "live", "On schedule or done"),
-        status(api, "wait", "Waiting on you, late or overdue"),
-        status(api, "run", "Working now"),
-        status(api, "dry", "Dry run"),
-        status(api, "dark", "Manual, off, no run yet or not checked")));
+    return api.h("span.v-status.v-s-" + kind, null, api.h("span", null, word || (KIND[kind] || {}).word || ""));
   }
   function card(api, label, right, body, extra) {
     return api.h("section.v-card" + (extra || ""), null,
@@ -332,7 +322,7 @@
     else if (o === 1) when = "Tomorrow";
     else when = shortDate(api, o);
     return api.h("div.v-task" + (o != null && o < 0 ? ".v-over" : ""), null,
-      bare ? null : api.h("div.v-task-when.v-num", null, o != null && o < 0 ? shape(api, "wait") : null, api.h("span", null, when)),
+      bare ? null : api.h("div.v-task-when.v-num", null, api.h("span", null, when)),
       api.h("div.v-task-main", null,
         api.h("div.v-task-title", null, t.title),
         api.h("div.v-task-sub", null, t.list, t.otto ? api.h("span.v-otto", null, "Otto made") : null)),
@@ -543,7 +533,7 @@
     var colA = api.h("div.v-col.v-col-a", null, ord(1, needsCard(api, 3)), ord(1, conflictsCard(api, s)), ord(2, glance(api, s)), ord(3, timeline(api, s)), ord(7, lookahead(api, s)));
     var colB = api.h("div.v-col.v-col-b", null, ord(4, dueCard(api, s)), ord(5, inboxCard(api, s)),
       ord(8, listCard(api, "Watching", s.watching)), ord(9, listCard(api, "Goals", s.goals)));
-    var colC = api.h("div.v-col.v-col-c", null, ord(6, sleepCard(api, s)), ord(10, systemCard(api, s)), ord(11, legend(api)));
+    var colC = api.h("div.v-col.v-col-c", null, ord(6, sleepCard(api, s)), ord(10, systemCard(api, s)));
     return [heading(api, api.fmtDay(new Date()), "Otto checked " + api.fmtTime(s.generated)),
       api.h("div.v-grid", null, colA, colB, colC)];
   }
@@ -611,7 +601,7 @@
     } else {
       cards.push(muted(api, "Mail not read this check"));
     }
-    return [heading(api, "Inbox", null), dayStrip(api, s), api.h("div.v-stack", null, cards, legend(api))];
+    return [heading(api, "Inbox", null), dayStrip(api, s), api.h("div.v-stack", null, cards)];
   }
 
   /* ---------- Lists ---------- */
@@ -639,7 +629,7 @@
       return muted(api, k + ": " + api.plural(clinical[k], "clinical task"));
     });
     return [heading(api, "Lists", null), dayStrip(api, s), chips,
-      api.h("div.v-stack", null, groups.length ? groups : muted(api, "Nothing open"), clin, legend(api))];
+      api.h("div.v-stack", null, groups.length ? groups : muted(api, "Nothing open"), clin)];
   }
 
   /* ---------- Otto ---------- */
@@ -680,7 +670,7 @@
         api.h("div.v-col", null, ord(1, statusCard), ord(3, vmCard), ord(5, decisions),
           ord(6, listCard(api, "Watching", s.watching)), ord(7, listCard(api, "Goals", s.goals))),
         api.h("div.v-col", null, ord(2, agents)),
-        api.h("div.v-col", null, ord(4, act), ord(8, mapCard), ord(9, legend(api)), ord(10, api.lookPicker())))];
+        api.h("div.v-col", null, ord(4, act), ord(8, mapCard), ord(10, api.lookPicker())))];
   }
 
   /* ---------- chrome: wordmark, text tabs, toast ---------- */
@@ -690,8 +680,8 @@
       api.h("div.v-brand", null,
         api.h("span.v-word", null, api.h("span.v-word-a", null, "Otto"), api.h("span.v-word-b", null, "OS"))),
       api.h("div.v-top-right", null,
-        n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("inbox"); } } }, shape(api, "wait"), api.h("span.v-num", null, n + " need you"))
-          : probs.length ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("otto"); } } }, shape(api, "wait"), api.h("span.v-num", null, api.plural(probs.length, "problem")))
+        n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("inbox"); } } }, api.h("span.v-num", null, n + " need you"))
+          : probs.length ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("otto"); } } }, api.h("span.v-num", null, api.plural(probs.length, "problem")))
           : status(api, "live", "Clear"),
         api.DEMO ? api.h("span.v-demo", null, "Demo") : null)
     ];
@@ -707,7 +697,7 @@
     });
   }
   function renderToast(t, api) {
-    return [api.h("span.v-toast-text", null, shape(api, "live"), api.h("span", null, t.text)),
+    return [api.h("span.v-toast-text", null, api.h("span", null, t.text)),
       api.h("button.v-toast-undo", { type: "button", on: { click: t.onUndo } }, "Undo")];
   }
 

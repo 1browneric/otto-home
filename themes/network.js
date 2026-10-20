@@ -60,13 +60,10 @@
     [179, 488]
   ];
 
-  function nodeShape(state, x, y, on) {
-    var cls = "n-node-shape s-" + state;
-    if (state === "dormant") return svg("rect", { x: x - 11, y: y - 11, width: 22, height: 22, rx: 2, "class": cls });
-    if (state === "running") return svg("rect", { x: x - 10, y: y - 10, width: 20, height: 20, "class": cls, transform: "rotate(45 " + x + " " + y + ")" });
-    if (state === "retired") return svg("rect", { x: x - 12, y: y - 2, width: 24, height: 4, "class": cls });
-    if (state === "unknown") return svg("rect", { x: x - 10, y: y - 10, width: 20, height: 20, "class": cls });
-    return svg("circle", { cx: x, cy: y, r: on ? 13 : 12, "class": cls });
+  // Every team is the same plain circle: no status shapes (2026-10-20). The state is
+  // the word under the name; the fill colour follows it.
+  function node(state, x, y, on) {
+    return svg("circle", { cx: x, cy: y, r: on ? 13 : 12, "class": "n-dot s-" + state });
   }
 
   function map(s, api, list) {
@@ -97,7 +94,7 @@
       }, [
         svg("circle", { cx: p[0], cy: p[1] + 18, r: 34, "class": "n-hit" }),
         on ? svg("circle", { cx: p[0], cy: p[1], r: 20, "class": "n-ring" }) : null,
-        nodeShape(state, p[0], p[1], on),
+        node(state, p[0], p[1], on),
         svg("text", { x: p[0], y: p[1] + 36, "class": "n-name", "text-anchor": "middle", text: t.name }),
         svg("text", { x: p[0], y: p[1] + 57, "class": "n-word", "text-anchor": "middle", text: word })
       ]));
@@ -138,19 +135,15 @@
       [svg("line", { x1: 1, y1: 5, x2: 27, y2: 5, "class": "n-link " + cls })]), word);
   }
 
-  // The map block: legend, map and the selected team's card. The System tab around it
+  // The map block: line key, map and the selected team's card. The System tab around it
   // (health, freshness, gates) is built by themes/combined.js.
   function renderMap(s, api) {
     var list = teams(s, api);
     if (!list.length) return null;
     var sel = null;
     list.forEach(function (t) { if (t.id === api.ui.netSel) sel = t; });
-    var used = list.map(stateOf), order = ["live", "dark", "dormant", "retired", "running", "unknown"];
     return [
       api.h("div.n-legend", { "aria-label": "Legend" },
-        api.h("div.legend", null, order.filter(function (x) { return used.indexOf(x) >= 0; })
-          .concat(used.filter(function (x) { return order.indexOf(x) < 0; }).filter(function (x, i, a) { return a.indexOf(x) === i; }))
-          .map(function (x) { return api.st(x, x === "running" ? "Working" : null); })),
         api.h("div.n-legend-lines", null, linkKey(api, "", "Linked"), linkKey(api, "n-working", "Working now"))),
       map(s, api, list),
       card(api, sel)
