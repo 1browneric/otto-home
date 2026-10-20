@@ -1,6 +1,7 @@
-/* OttoOS v3, the production look. Four text tabs: Today (the day, with decisions on the
-   first screen and the system beside it), Inbox (decisions, filed today, unread mail),
-   Lists (tasks by date) and Otto (agents, VM, activity, decisions on record).
+/* OttoOS v3, the production look. Four text tabs: Today (the Needs you bar, the weather,
+   the day as a calendar grid, tasks, mail, recovery), Inbox (decisions, filed today, unread
+   mail), Lists (tasks by date) and OttoOS (agents, VM, activity, decisions on record).
+   The Needs you bar opens #needs: the decisions only, nothing else.
    Reads the v3 snapshot blocks (today, weather, recovery, sports, truck, due, inbox,
    lookahead, watching, goals, platform, agents_runs, vm, decisions). Any block may be
    missing or { connected: false }: a glance tile is then left out, a card collapses to
@@ -10,7 +11,7 @@
   "use strict";
   if (!window.OttoHome) return;
 
-  var ui = { list: "All", map: false, past: false };
+  var ui = { list: "All", map: false };
 
   /* ---------- small helpers ---------- */
   // Status = a word, coloured amber when it waits on you. No icons or shapes anywhere
@@ -177,9 +178,9 @@
     return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", month: "long", day: "numeric" }) + ", " + api.fmtTime(x);
   }
   function glance(api, s) {
-    var w = s.weather, r = s.recovery, sp = s.sports, t = s.truck, tiles = [];
-    if (on(w) && w.hi != null) tiles.push(tile(api, "Weather", w.hi + "° / " + w.lo + "°", [w.sky, w.wind, w.rain]));
-    if (on(r) && r.recovery_pct != null) tiles.push(tile(api, "Recovery", r.recovery_pct + "%", [r.hrv != null ? "HRV " + r.hrv : null, r.sleep_text ? "Sleep " + r.sleep_text : null, r.rhr != null ? "RHR " + r.rhr : null]));
+    // Weather is its own full-width card and recovery its own card (as in the Daily Email,
+    // no recovery number anywhere else), so the tiles are the game or week, and the truck.
+    var sp = s.sports, t = s.truck, tiles = [];
     if (on(sp) && sp.game) {
       tiles.push(tile(api, "Game today", sp.game.headline, [api.fmtTime(sp.game.time), sp.game.channel ? "On " + sp.game.channel : null], ".v-tile-text"));
     } else {
@@ -207,52 +208,118 @@
       firstIt ? "Next: " + firstIt.title : null], ".v-tile-text");
   }
 
-  /* ---------- Today: timeline ---------- */
-  function isPast(api, e, now) {
-    if (e.all_day) return false;
-    var x = api.d(e.start);
-    return (e.end ? api.d(e.end).getTime() : x.getTime() + 30 * 60000) < now;
+  /* ---------- Today: the day as a calendar grid (Google Calendar's day view) ----------
+     Hour rows, each timed event a block sized by its length, all-day events in a row on
+     top, a "now" line. Each block wears the color of its calendar (today.colors: the
+     colors from Google Calendar itself) and always prints the calendar name as text, so
+     color is never the only cue. A clinical block is its calendar name and time only. */
+  var HOUR_PX = 52, MIN_BLOCK_PX = 26;
+  function ctMin(x) {
+    var p = x.toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour12: false, hour: "2-digit", minute: "2-digit" });
+    var m = /(\d+):(\d+)/.exec(p);
+    return m ? ((+m[1]) % 24) * 60 + (+m[2]) : 0;
   }
-  function evTime(api, e) {
-    if (e.all_day) return [api.h("div", null, "All day")];
-    return [api.h("div", null, api.fmtTime(e.start)), e.end ? api.h("div.v-ev-end", null, api.fmtTime(e.end)) : null];
+  function hourWord(h) { var hh = h % 24; return (hh % 12 || 12) + (hh < 12 ? " AM" : " PM"); }
+  function calColor(t, tag) {
+    var c = ((t && t.colors) || {})[tag];
+    return /^#[0-9A-Fa-f]{6}$/.test(c || "") ? c : null;
+  }
+  function luminance(hex) {
+    var v = [1, 3, 5].map(function (i) {
+      var c = parseInt(hex.substr(i, 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  }
+  // The text color with the higher contrast on the calendar color (white on black, dark on yellow).
+  function inkOn(hex) {
+    var l = luminance(hex);
+    return 1.05 / (l + 0.05) >= (l + 0.05) / 0.05 ? "#FFFFFF" : "#111111";
+  }
+  function blockStyle(t, e, extra) {
+    var c = calColor(t, e.tag);
+    return (c ? "background:" + c + ";color:" + inkOn(c) + ";" : "") + (extra || "");
+  }
+  function spanText(api, e) {
+    if (!e.end) return api.fmtTime(e.start);
+    return api.fmtTime(e.start) + " to " + api.fmtTime(e.end);
+  }
+  // Overlapping events share the width: each gets a column inside its cluster.
+  function columns(rows) {
+    var out = [], cluster = [], cEnd = -1;
+    function flush() {
+      var cols = [];
+      cluster.forEach(function (r) {
+        var i = 0;
+        while (cols[i] != null && cols[i] > r.a) i++;
+        cols[i] = r.b; r.col = i;
+      });
+      cluster.forEach(function (r) { r.n = cols.length; out.push(r); });
+      cluster = []; cEnd = -1;
+    }
+    rows.forEach(function (r) {
+      if (cluster.length && r.a >= cEnd) flush();
+      cluster.push(r); cEnd = Math.max(cEnd, r.b);
+    });
+    if (cluster.length) flush();
+    return out;
   }
   function timeline(api, s) {
     var t = s.today;
     if (!t) return null;
     if (!on(t)) return card(api, "Today", null, muted(api, "Calendar not read this check"));
-    var ev = (t.events || []).filter(function (e) { return api.d(e.start); }).slice().sort(function (a, b) {
-      return (b.all_day ? 1 : 0) - (a.all_day ? 1 : 0) || api.d(a.start) - api.d(b.start);
-    });
-    var rows = [], nowPlaced = false, now = nowMs();
-    var conflictAt = {};
-    (t.conflicts || []).forEach(function (c) { var x = api.d(c.at); if (x) conflictAt[x.getTime()] = c; });
-    var pastN = ev.filter(function (e) { return isPast(api, e, now); }).length;
-    if (pastN && !ui.past) {
-      rows.push(api.h("div.v-earlier", null,
-        api.h("span.v-earlier-t", null, "Earlier"),
-        api.h("span.v-earlier-n.v-num", null, api.plural(pastN, "event")),
-        link(api, "Show", function () { ui.past = true; api.render(); })));
+    var all = (t.events || []).filter(function (e) { return api.d(e.start); });
+    var allDay = all.filter(function (e) { return e.all_day; });
+    var now = nowMs(), nowM = ctMin(new Date(now)), isToday = !t.as_of || api.dayKey(t.as_of) === todayKey(api);
+    var rows = all.filter(function (e) { return !e.all_day; }).map(function (e) {
+      var x = api.d(e.start), y = e.end ? api.d(e.end) : null, a = ctMin(x);
+      var b = y ? (api.dayKey(y) !== api.dayKey(x) ? 24 * 60 : ctMin(y)) : a + 30;
+      return { e: e, a: a, b: Math.max(b, a + 15), past: (y ? y.getTime() : x.getTime() + 30 * 60000) < now };
+    }).sort(function (p, q) { return p.a - q.a || q.b - p.b; });
+    if (!rows.length && !allDay.length) {
+      return card(api, "Today", null, [muted(api, "Nothing on the calendar today"), t.footer ? api.h("div.v-foot", null, t.footer) : null]);
     }
-    ev.forEach(function (e) {
-      var x = api.d(e.start), past = isPast(api, e, now);
-      if (past && !ui.past) return;
-      if (!nowPlaced && !e.all_day && x.getTime() > now) {
-        rows.push(api.h("div.v-now", { "aria-label": "Now" }, api.h("span.v-now-t.v-num", null, "Now " + api.fmtTime(new Date())), api.h("span.v-now-line")));
-        nowPlaced = true;
-      }
-      rows.push(api.h("div.v-ev" + (past ? ".v-past" : ""), null,
-        api.h("div.v-ev-time.v-num", null, evTime(api, e)),
-        api.h("div.v-ev-main", null,
-          api.h("div.v-ev-title", null, e.title),
-          api.h("div.v-ev-sub", null, api.h("span.v-tag", null, e.tag), e.place && !e.clinical ? api.h("span", null, e.place) : null))));
-      var c = conflictAt[x.getTime()];
-      if (c) rows.push(api.h("div.v-conflict", null, status(api, "wait", "Conflict"), api.h("span.v-conflict-x", null, c.text)));
+    var lo = 24, hi = 0;
+    rows.forEach(function (r) { lo = Math.min(lo, Math.floor(r.a / 60)); hi = Math.max(hi, Math.ceil(r.b / 60)); });
+    if (isToday) { lo = Math.min(lo, Math.floor(nowM / 60)); hi = Math.max(hi, Math.floor(nowM / 60) + 1); }
+    if (!rows.length && !isToday) { lo = 8; hi = 17; }
+    if (hi - lo < 4) hi = Math.min(24, lo + 4);
+    if (hi - lo < 4) lo = Math.max(0, hi - 4);
+    var hours = [];
+    var nowTop = isToday ? (nowM - lo * 60) / 60 * HOUR_PX : -999;
+    // one line per hour, the closing hour included, every row HOUR_PX tall; a block's top
+    // and bottom land on the lines for its start and end (less a 2 px gap at the bottom)
+    for (var h = lo; h <= hi; h++) {
+      // the now label takes the gutter: an hour label it would sit on is left out
+      var hidden = Math.abs((h - lo) * HOUR_PX - nowTop) < 24;
+      hours.push(api.h("div.v-cal-hour", { style: "top:" + (h - lo) * HOUR_PX + "px" },
+        hidden ? null : api.h("span.v-cal-hl.v-num", null, hourWord(h))));
+    }
+    var blocks = columns(rows).map(function (r) {
+      var e = r.e, top = Math.round((r.a - lo * 60) / 60 * HOUR_PX), ht = Math.max(MIN_BLOCK_PX, Math.round((r.b - r.a) / 60 * HOUR_PX) - 2);
+      var w = 100 / r.n, pos = "top:" + top + "px;height:" + ht + "px;left:calc(" + (r.col * w) + "% + 2px);width:calc(" + w + "% - 4px);";
+      return api.h("div.v-cal-b" + (r.past ? ".v-past" : "") + (calColor(t, e.tag) ? "" : ".v-cal-plain"), { style: blockStyle(t, e, pos) },
+        api.h("div.v-cal-bt", null, api.h("span.v-cal-tag", null, e.tag), e.clinical ? null : " " + e.title),
+        api.h("div.v-cal-bs.v-num", null, spanText(api, e)),
+        e.place && !e.clinical ? api.h("div.v-cal-bs", null, e.place) : null);
     });
-    if (!ev.length) rows.push(muted(api, "Nothing on the calendar today"));
-    else if (!nowPlaced) rows.push(api.h("div.v-now", null, api.h("span.v-now-t.v-num", null, "Now " + api.fmtTime(new Date())), api.h("span.v-now-line")));
-    return card(api, "Today", api.h("span.v-card-meta", null, api.plural(ev.length, "event")),
-      [api.h("div.v-tl", null, rows), t.footer ? api.h("div.v-foot", null, t.footer) : null]);
+    var nowLine = isToday && nowM >= lo * 60 && nowM <= hi * 60
+      ? api.h("div.v-cal-now", { "aria-label": "Now", style: "top:" + Math.round((nowM - lo * 60) / 60 * HOUR_PX) + "px" },
+        api.h("span.v-cal-nowt.v-num", null, api.fmtTime(new Date(now))), api.h("span.v-cal-nowl"))
+      : null;
+    var top = allDay.length ? api.h("div.v-cal-allday", null,
+      api.h("div.v-cal-adl", null, "All day"),
+      api.h("div.v-cal-adlist", null, allDay.map(function (e) {
+        return api.h("div.v-cal-chip" + (calColor(t, e.tag) ? "" : ".v-cal-plain"), { style: blockStyle(t, e) },
+          api.h("span.v-cal-tag", null, e.tag), e.clinical ? null : " " + e.title);
+      }))) : null;
+    var grid = rows.length || isToday ? api.h("div.v-cal-grid", { style: "height:" + (hi - lo) * HOUR_PX + "px" },
+      hours, api.h("div.v-cal-events", null, blocks), nowLine) : null;
+    var conflicts = (t.conflicts || []).map(function (c) {
+      return api.h("div.v-conflict", null, status(api, "wait", "Conflict " + api.fmtTime(c.at)), api.h("span.v-conflict-x", null, c.text));
+    });
+    return card(api, "Today", api.h("span.v-card-meta", null, api.plural(all.length, "event")),
+      [top, grid, conflicts, t.footer ? api.h("div.v-foot", null, t.footer) : null], ".v-card-cal");
   }
 
   /* ---------- conflicts in the next 14 days (hidden when there are none) ---------- */
@@ -282,22 +349,6 @@
       return api.h("button.v-btn" + (i === 0 ? ".v-primary" : ""), { type: "button",
         on: { click: function () { api.send(it.id, v, api.tokenFor(it, v)); } } }, VERB_WORD[v]);
     }));
-  }
-  function needCompact(api, it) {
-    var done = sentLine(api, it), reason = api.reason(it.id);
-    return api.h("div.v-need", null,
-      api.h("div.v-need-title", null, it.title),
-      api.h("div.v-need-why", null, api.whyText(it.why)),
-      it.decide_today ? api.h("div.v-need-due", null, status(api, "wait", "Decide today")) : null,
-      reason ? api.h("div.v-need-why", null, reason) : null,
-      done || buttons(api, it));
-  }
-  function needsCard(api, n) {
-    var list = openNeeds(api), shown = list.slice(0, n);
-    var right = list.length > shown.length ? link(api, "See all " + list.length, function () { api.go("inbox"); })
-      : api.h("span.v-card-meta", null, list.length ? api.plural(list.length, "decision") : "");
-    if (!shown.length) return null;  // the top bar already says Clear
-    return card(api, "Needs you", right, shown.map(function (it) { return needCompact(api, it); }), ".v-card-needs");
   }
 
   /* ---------- tasks by date ---------- */
@@ -398,6 +449,7 @@
     var n = (b && b.sorted) || {};
     return (n.receipts || 0) + (n.refunds || 0) + (n.bills || 0);
   }
+  var FILED_WORDS = "Turned into tasks or events", DIGEST_WORDS = "Saved for tonight's rundown";
   function inboxCard(api, s) {
     var b = s.inbox;
     if (!on(b)) return null;
@@ -405,34 +457,19 @@
     var lines = statLines(api, [
       [unreadText(b), "Unread"],
       [ik.read != null ? ik.read : null, "Read today, new and older"],
-      [fn || null, "Otto filed today"],
-      [dg || null, "Digest lines today"],
+      [fn || null, FILED_WORDS],
+      [dg || null, DIGEST_WORDS],
       [sortedTotal(b) || null, "Receipts and bills sorted"],
-      [ik.ignored || null, "Ignored by rule"],
       [ik.waiting || null, "Waiting to be read"]]);
     if (!lines) return null;
-    return card(api, "Inbox", link(api, "Open", function () { api.go("inbox"); }), [
+    return card(api, "Inbox", api.h("a.v-link", { href: GMAIL_APP, "aria-label": "Open Gmail",
+      on: { click: function (ev) { ev.preventDefault(); openGmail(); } } }, "Open"), [
       lines,
       (b.top || []).slice(0, 2).map(function (r) { return mailRow(api, r); })
     ]);
   }
 
-  /* ---------- look-ahead, watching, goals ---------- */
-  function lookahead(api, s) {
-    var l = s.lookahead;
-    if (!on(l)) return null;
-    var days = l.days || [];
-    return card(api, "Next 7 days", null, days.length ? days.map(function (dy) {
-      return api.h("div.v-day", null,
-        api.h("div.v-day-head", null, dy.date || api.fmtDayOnly(keyPlus(api, dy.day_offset))),
-        (dy.items || []).map(function (it) {
-          return api.h("div.v-ev.v-ev-sm", null,
-            api.h("div.v-ev-time.v-num", null, it.time),
-            api.h("div.v-ev-main", null, api.h("div.v-ev-title", null, it.title)),
-            api.h("span.v-tag", null, it.tag));
-        }));
-    }) : muted(api, "Nothing on the calendar this week"));
-  }
+  /* ---------- watching, goals ---------- */
   function lineRows(api, rows) {
     return (rows || []).map(function (r) {
       return api.h("div.v-row", null,
@@ -446,25 +483,6 @@
     return card(api, label, null, lineRows(api, b.rows));
   }
 
-  /* ---------- sleep and recovery ---------- */
-  function sleepCard(api, s) {
-    var sl = s.sleep, r = s.recovery;
-    if (!on(sl) && !on(r)) return null;
-    var hrs = (on(sl) && sl.last_7d) || [], rec = (on(r) && r.last_7d) || [], days = api.lastDays(7), max = 9, goal = sl && sl.goal;
-    var bars = api.h("div.v-bars", { role: "img", "aria-label": "Sleep hours, last 7 nights" },
-      goal ? api.h("div.v-goal", { style: "bottom:" + Math.round(goal / max * 96) + "px" }) : null,
-      days.map(function (dname, i) {
-        var v = hrs[i], last = i === days.length - 1;
-        return api.h("div.v-bar-col", null,
-          api.h("div.v-bar-v.v-num", null, v != null ? v.toFixed(1) + " h" : ""),
-          api.h("div.v-bar-track", null, api.h("div.v-bar" + (last ? ".v-bar-now" : ""), { style: "height:" + Math.min(100, (v || 0) / max * 100) + "%" })));
-      }));
-    var labels = api.h("div.v-bar-labels", null, days.map(function (dn) { return api.h("span", null, dn); }));
-    var recRow = rec.some(function (v) { return v != null; }) ? api.h("div.v-rec-row", null, api.h("span.v-rec-k", null, "Recovery"),
-      api.h("div.v-rec-vals.v-num", null, rec.map(function (v) { return api.h("span", null, v != null ? v + "%" : ""); }))) : null;
-    var src = (on(r) && r.source) || (on(sl) && sl.source) || null;
-    return card(api, "Sleep and recovery", src ? api.h("span.v-card-meta", null, src) : null, [hrs.length ? [bars, labels] : null, recRow]);
-  }
 
   /* ---------- system beside the day ---------- */
   function agentRows(s) { return on(s.agents_runs) ? (s.agents_runs.rows || []) : []; }
@@ -489,10 +507,6 @@
   function pct(a, b) { return Math.round(a / b * 100) + "%"; }
   function kvRow(api, k, v) { return api.h("div.v-kv-row", null, api.h("div.v-kv-k", null, k), api.h("div.v-kv-v.v-num", null, v)); }
   function vmLine(vm) { return pct(vm.ram_used_mb, vm.ram_total_mb) + " (" + vm.ram_used_mb + " of " + vm.ram_total_mb + " MB)"; }
-  function soonest(api, rows, n) {
-    return rows.map(function (x) { return { x: x, t: agentNext(api, x) }; }).filter(function (p) { return p.t; })
-      .sort(function (a, b) { return a.t - b.t; }).slice(0, n).map(function (p) { return p.x; });
-  }
   function agentRow(api, s, x, compact) {
     var kind = STATE_KIND[x.state] || "dark", nx = agentNext(api, x), lines, word = STATE_WORD[x.state] || null;
     if (x.gate === "dark") { kind = "dark"; word = "Off"; }
@@ -515,19 +529,150 @@
       api.h("div.v-agent-runs.v-num", null, lines),
       status(api, kind, word));
   }
-  function systemCard(api, s) {
-    var a = agentRows(s), vm = s.vm, c = on(s.decisions) ? (s.decisions.verdicts || [])[0] : null;
-    var liveN = a.filter(function (x) { return x.state === "live"; }).length;
-    var stale = a.some(function (x) { return unchecked(api, s, x); });
-    var schedN = a.filter(function (x) { return x.state !== "manual"; }).length;
-    return card(api, "Otto and system", link(api, "Open Otto", function () { api.go("otto"); }), [
-      sysHead(api, s),
+
+  /* ---------- Weather: full width, the card shows the sky outside ----------
+     Like the phone's weather wallpaper: the backdrop follows the current Open-Meteo
+     weather code (else the day's sky word), with a night version between sunset and
+     sunrise. Pure CSS layers (gradients, drifting clouds, falling rain or snow), still
+     under prefers-reduced-motion. The words carry the reading; the sky is only backdrop.
+     window.OTTO_WX_FORCE = { kind, night } pins it (screenshots and tests only). */
+  var WX_WORD = { clear: "Sunny", partly: "Partly cloudy", cloudy: "Cloudy", rain: "Rain", storm: "Thunderstorm", snow: "Snow", fog: "Fog" };
+  function wxKind(code, sky) {
+    if (code != null && !isNaN(+code)) {
+      var c = +code;
+      if (c === 0 || c === 1) return "clear";
+      if (c === 2) return "partly";
+      if (c === 45 || c === 48) return "fog";
+      if (c >= 95) return "storm";
+      if ((c >= 71 && c <= 77) || c === 85 || c === 86) return "snow";
+      if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82)) return "rain";
+      return "cloudy";
+    }
+    var w = String(sky || "").toLowerCase();
+    if (/thunder/.test(w)) return "storm";
+    if (/snow|flurr|sleet/.test(w)) return "snow";
+    if (/rain|drizzle|shower/.test(w)) return "rain";
+    if (/fog|mist|haze/.test(w)) return "fog";
+    if (/partly|mostly clear/.test(w)) return "partly";
+    if (/clear|sun/.test(w)) return "clear";
+    return w ? "cloudy" : null;
+  }
+  function wxNight(api, w, now) {
+    var up = api.d(w.sunrise), down = api.d(w.sunset);
+    if (up && down && api.dayKey(up) === api.dayKey(new Date(now))) return now < up.getTime() || now >= down.getTime();
+    if (w.is_day === false) return true;
+    if (w.is_day === true) return false;
+    var m = ctMin(new Date(now));
+    return m < 7 * 60 || m >= 19 * 60;
+  }
+  function wxState(api, w) {
+    var f = window.OTTO_WX_FORCE;
+    if (f && WX_WORD[f.kind]) return { kind: f.kind, night: !!f.night };
+    var kind = wxKind(w.code, w.now_sky || w.sky);
+    return kind ? { kind: kind, night: wxNight(api, w, nowMs()) } : null;
+  }
+  function weatherCard(api, s) {
+    var w = s.weather;
+    if (!on(w) || w.hi == null) return null;
+    var st = wxState(api, w), kind = st ? st.kind : "cloudy", night = st ? st.night : false;
+    var word = (w.now_sky || w.sky) || WX_WORD[kind];
+    if (night && kind === "clear" && /sunny|mostly clear/i.test(word)) word = "Clear";
+    if (window.OTTO_WX_FORCE && st) word = night && kind === "clear" ? "Clear" : WX_WORD[kind];
+    var up = api.d(w.sunrise), down = api.d(w.sunset), now = nowMs(), sun = null;
+    if (up && now < up.getTime()) sun = "Sunrise " + api.fmtTime(up);
+    else if (down && now < down.getTime()) sun = "Sunset " + api.fmtTime(down);
+    var lines = [w.now != null ? "High " + w.hi + "°" : null, w.now != null ? "Low " + w.lo + "°" : null,
+      w.wind, w.rain, sun].filter(Boolean);
+    return api.h("section.v-wx.v-wx-" + kind + (night ? ".v-wx-night" : ""), { "aria-label": "Weather, " + word, "data-wx": kind + (night ? "-night" : "") },
+      api.h("div.v-wx-sky"), api.h("div.v-wx-glow"), api.h("div.v-wx-clouds"), api.h("div.v-wx-fall"), api.h("div.v-wx-flash"), api.h("div.v-wx-scrim"),
+      api.h("div.v-wx-body", null,
+        api.h("div.v-wx-main", null,
+          api.h("h2.v-wx-k", null, "Weather"),
+          api.h("div.v-wx-big.v-num" + (w.now != null ? "" : ".v-wx-pair"), null, w.now != null ? w.now + "°" : w.hi + "° / " + w.lo + "°"),
+          api.h("div.v-wx-word", null, word)),
+        api.h("div.v-wx-lines.v-num", null, lines.map(function (l) { return api.h("div", null, l); }))));
+  }
+
+  /* ---------- Needs you: the bar on top of Today, and its own view (#needs) ---------- */
+  function needsBar(api) {
+    var list = openNeeds(api), first = list[0];
+    return api.h("button.v-needbar" + (list.length ? ".v-needbar-on" : ""), { type: "button", "aria-label": list.length ? "Needs you, " + list.length + ", open" : "Nothing waiting on you",
+      on: { click: function () { api.go("needs"); } } },
+      api.h("div.v-needbar-head", null,
+        api.h("span.v-needbar-k", null, "Needs you"),
+        api.h("span.v-needbar-n.v-num", null, list.length ? String(list.length) : "")),
+      api.h("div.v-needbar-t", null, first ? first.title : "Nothing waiting on you"),
+      list.length > 1 ? api.h("div.v-needbar-more", null, "And " + (list.length - 1) + " more") : null);
+  }
+  // The decisions only: Approve / Deny / Later, or Done / Deny. Nothing else on the page.
+  function renderNeeds(s, api) {
+    var list = openNeeds(api);
+    return [api.h("div.v-head.v-head-row", null, api.h("h1.v-h1", null, "Needs you"),
+      link(api, "Back to Today", function () { api.go("today"); })),
+      api.h("div.v-stack", null, list.length ? list.map(function (it) { return needFull(api, it); })
+        : muted(api, "Nothing waiting on you"))];
+  }
+
+  /* ---------- Recovery: the Daily Email's recovery card, same labels, same order ----------
+     Prev day strain, Recovery, Sleep; then HRV, Rest HR, Avg HR, Sleep consistency;
+     then sleep stages with need and debt. A field the fetch did not record is left out. */
+  function hmText(h) {
+    if (h == null) return null;
+    var m = Math.round(h * 60);
+    return Math.floor(m / 60) + "h " + (m % 60) + "m";
+  }
+  function minText(m) { return m == null ? null : Math.floor(m / 60) + "h " + (m % 60) + "m"; }
+  function ring(api, cls, frac, big, sub, label) {
+    var p = Math.max(0, Math.min(1, frac || 0)) * 100;
+    return api.h("div.v-wh-ring" + cls, null,
+      api.h("div.v-wh-dial", { style: "--p:" + p.toFixed(1) },
+        api.h("div.v-wh-in", null, api.h("div.v-wh-big.v-num", null, big), sub ? api.h("div.v-wh-sub.v-num", null, sub) : null)),
+      api.h("div.v-wh-lab", null, label));
+  }
+  function whoopCard(api, s) {
+    var r = s.recovery;
+    if (!on(r) || r.recovery_pct == null) return null;
+    var zone = r.recovery_pct >= 67 ? "hi" : r.recovery_pct >= 34 ? "mid" : "lo";
+    var sleepH = r.sleep_h != null ? r.sleep_h : null;
+    var sleepWords = sleepH != null ? hmText(sleepH) : r.sleep_text ? r.sleep_text.replace(/^(\d+):(\d+)$/, function (m, a, b) { return (+a) + "h " + (+b) + "m"; }) : null;
+    var rings = [
+      r.strain != null ? ring(api, ".v-wh-strain", r.strain / 21, r.strain.toFixed(1), "of 21", "Prev day strain") : null,
+      ring(api, ".v-wh-rec.v-wh-" + zone, r.recovery_pct / 100, r.recovery_pct + "%", null, "Recovery"),
+      r.sleep_performance != null ? ring(api, ".v-wh-sleep", r.sleep_performance / 100, r.sleep_performance + "%", sleepWords, "Sleep")
+        : sleepWords ? ring(api, ".v-wh-sleep", 0, sleepWords, null, "Sleep") : null];
+    var stats = [[r.hrv, "HRV ms"], [r.rhr, "Rest HR"], [r.avg_hr, "Avg HR"],
+      [r.sleep_consistency != null ? r.sleep_consistency + "%" : null, "Sleep consistency"]]
+      .filter(function (x) { return x[0] != null; })
+      .map(function (x) { return api.h("div.v-wh-stat", null, api.h("div.v-wh-sn.v-num", null, String(x[0])), api.h("div.v-wh-sl", null, x[1])); });
+    var st = r.stages_min || {}, tot = (st.light || 0) + (st.sws || 0) + (st.rem || 0);
+    var stages = tot ? api.h("div.v-wh-stages", null,
+      api.h("div.v-wh-stk", null, "Sleep stages"),
+      api.h("div.v-wh-bar", { role: "img", "aria-label": "Light, then SWS, then REM" }, [["light", "Light"], ["sws", "SWS"], ["rem", "REM"]].map(function (x) {
+        return api.h("div.v-wh-seg.v-wh-" + x[0], { style: "width:" + ((st[x[0]] || 0) / tot * 100).toFixed(1) + "%" });
+      })),
       api.h("div.v-kv", null,
-        schedN ? kvRow(api, stale ? "On schedule at " + api.fmtTime(s.generated) : "Agents on schedule", liveN + " of " + schedN) : null,
-        on(vm) ? kvRow(api, "VM memory", vmLine(vm)) : null,
-        c ? kvRow(api, "Latest decision", c.title) : null),
-      a.length ? [api.h("div.v-sub-head", null, "Next runs"), soonest(api, a, 4).map(function (x) { return agentRow(api, s, x, true); })] : null
-    ], ".v-card-sys");
+        kvRow(api, "Light", minText(st.light || 0)), kvRow(api, "SWS", minText(st.sws || 0)), kvRow(api, "REM", minText(st.rem || 0)),
+        r.sleep_need_h != null ? kvRow(api, "Need", hmText(r.sleep_need_h)) : null,
+        r.sleep_debt_h != null ? kvRow(api, "Debt", hmText(r.sleep_debt_h)) : null)) : null;
+    var day = r.date ? api.fmtDayOnly(r.date) : null;
+    return api.h("section.v-card.v-wh", null,
+      api.h("div.v-card-head", null, api.h("h2.v-label", null, r.source || "Recovery"), day ? api.h("span.v-card-meta", null, day) : null),
+      api.h("div.v-wh-rings", null, rings),
+      stats.length ? api.h("div.v-wh-stats", null, stats) : null,
+      stages);
+  }
+
+  /* ---------- Inbox card: Open goes to the Gmail app ---------- */
+  var GMAIL_APP = "googlegmail://", GMAIL_WEB = "https://mail.google.com/";
+  // The Gmail app when it is installed; the web inbox when the app did not open.
+  function openGmail() {
+    var left = false, mark = function () { if (document.visibilityState === "hidden") left = true; };
+    try { document.addEventListener("visibilitychange", mark); } catch (e) { /* none */ }
+    setTimeout(function () {
+      try { document.removeEventListener("visibilitychange", mark); } catch (e) { /* none */ }
+      if (!left && document.visibilityState === "visible") window.location.href = GMAIL_WEB;
+    }, 1500);
+    window.location.href = GMAIL_APP;
   }
 
   /* ---------- Today ---------- */
@@ -535,11 +680,13 @@
     return api.h("div.v-head", null, api.h("h1.v-h1", null, title), sub ? api.h("div.v-h1-sub", null, sub) : null);
   }
   function renderToday(s, api) {
-    var colA = api.h("div.v-col.v-col-a", null, ord(1, needsCard(api, 3)), ord(1, conflictsCard(api, s)), ord(2, glance(api, s)), ord(3, timeline(api, s)), ord(7, lookahead(api, s)));
-    var colB = api.h("div.v-col.v-col-b", null, ord(4, dueCard(api, s)), ord(5, inboxCard(api, s)),
-      ord(8, listCard(api, "Watching", s.watching)), ord(9, listCard(api, "Goals", s.goals)));
-    var colC = api.h("div.v-col.v-col-c", null, ord(6, sleepCard(api, s)), ord(10, systemCard(api, s)));
-    return [heading(api, api.fmtDay(new Date()), "Otto checked " + api.fmtTime(s.generated)),
+    // Phone order: Needs you bar, conflicts, weather, tiles, the day, tasks, mail, watching,
+    // goals, recovery. The system lives on the OttoOS tab only; the week ahead is left out.
+    var colA = api.h("div.v-col.v-col-a", null, ord(1, conflictsCard(api, s)), ord(2, weatherCard(api, s)), ord(3, glance(api, s)), ord(4, timeline(api, s)));
+    var colB = api.h("div.v-col.v-col-b", null, ord(5, dueCard(api, s)), ord(6, inboxCard(api, s)),
+      ord(7, listCard(api, "Watching", s.watching)), ord(8, listCard(api, "Goals", s.goals)));
+    var colC = api.h("div.v-col.v-col-c", null, ord(9, whoopCard(api, s)));
+    return [heading(api, api.fmtDay(new Date()), "Otto checked " + api.fmtTime(s.generated)), needsBar(api),
       api.h("div.v-grid", null, colA, colB, colC)];
   }
 
@@ -558,7 +705,7 @@
     var kind = api.previewKind(it), done = sentLine(api, it), reason = api.reason(it.id);
     var prev = kind === "event" ? eventMini(api, it)
       : kind === "reply" ? (function () { var r = api.replyPreview(it); return api.h("div.v-replyprev", null, r.to ? api.h("div.v-evcard-sub", null, "To " + r.to) : null, api.h("div.v-replyprev-text", null, r.text)); })()
-      : api.h("div.v-lineprev", null, api.preview(it));
+      : api.preview(it) ? api.h("div.v-lineprev", null, api.preview(it)) : null;
     return api.h("article.v-card.v-needfull", null,
       api.h("div.v-need-meta", null, api.h("span.v-tag", null, api.typeLabel(it)), it.area ? api.h("span.v-tag", null, it.area) : null,
         it.decide_today ? status(api, "wait", "Decide today") : null),
@@ -590,13 +737,12 @@
       var lines = statLines(api, [
         [ik.read != null ? ik.read : null, "Read today, new and older"],
         [sortedTotal(b) || null, "Receipts and bills sorted"],
-        [ik.ignored || null, "Ignored by rule"],
         [ik.waiting || null, "Waiting to be read"]]);
       cards.push(card(api, "Otto's mail today", null, [
         !did && ik.read != null ? api.h("div.v-sys-head", null, status(api, "live", "Otto read " + api.plural(ik.read, "email") + " today, nothing needed you")) : null,
         lines,
-        filed.length ? [api.h("div.v-sub-head", null, "Filed " + fn), filed.map(function (r) { return filedRow(api, r); })] : null,
-        dg.length ? [api.h("div.v-sub-head", null, "Digest lines " + dg.length), dg.map(function (r) { return digestRow(api, r); })] : null
+        filed.length ? [api.h("div.v-sub-head", null, FILED_WORDS + " " + fn), filed.map(function (r) { return filedRow(api, r); })] : null,
+        dg.length ? [api.h("div.v-sub-head", null, DIGEST_WORDS + " " + dg.length), dg.map(function (r) { return digestRow(api, r); })] : null
       ]));
       if (b.unread != null && (b.unread || (b.top || []).length)) {
         cards.push(card(api, "Unread, primary", api.h("span.v-card-meta.v-num", null, unreadText(b)),
@@ -635,15 +781,20 @@
       return muted(api, k + ": " + api.plural(clinical[k], "clinical task"));
     });
     return [heading(api, "Lists", null), dayStrip(api, s), chips,
-      api.h("div.v-stack", null, groups.length ? groups : muted(api, "Nothing open"), clin)];
+      api.h("div.v-stack.v-lists", null, groups.length ? groups : muted(api, "Nothing open"), clin)];
   }
 
   /* ---------- Otto ---------- */
   function renderOtto(s, api) {
     var pf = on(s.platform) ? s.platform : {}, a = agentRows(s), vm = s.vm, c = on(s.decisions) ? (s.decisions.verdicts || []) : [];
+    // The "Otto and system" card left Today (2026-10-20); its schedule line lives here.
+    var liveN = a.filter(function (x) { return x.state === "live"; }).length;
+    var schedN = a.filter(function (x) { return x.state !== "manual"; }).length;
+    var stale = a.some(function (x) { return unchecked(api, s, x); });
     var statusCard = card(api, "Status", null, [
       sysHead(api, s),
       api.h("div.v-kv", null,
+        schedN ? kvRow(api, stale ? "On schedule at " + api.fmtTime(s.generated) : "Agents on schedule", liveN + " of " + schedN) : null,
         kvRow(api, "Last check", api.fmtTime(s.generated)),
         nextCheckRow(api, s),
         pf.self_update ? kvRow(api, "Updated", whenLabel(api, pf.self_update)) : null)
@@ -686,7 +837,7 @@
       api.h("div.v-brand", null,
         api.h("span.v-word", null, api.h("span.v-word-a", null, "Otto"), api.h("span.v-word-b", null, "OS"))),
       api.h("div.v-top-right", null,
-        n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("inbox"); } } }, api.h("span.v-num", null, n + " need you"))
+        n ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("needs"); } } }, api.h("span.v-num", null, n + " need you"))
           : probs.length ? api.h("button.v-pill", { type: "button", on: { click: function () { api.go("otto"); } } }, api.h("span.v-num", null, api.plural(probs.length, "problem")))
           : status(api, "live", "Clear"),
         api.DEMO ? api.h("span.v-demo", null, "Demo") : null)
@@ -694,7 +845,7 @@
   }
   function renderTabs(s, api) {
     var n = s ? openNeeds(api).length : 0, cur = api.tab();
-    return api.tabs().map(function (t) {
+    return api.tabs().filter(function (t) { return !t.hidden; }).map(function (t) {
       var sel = cur === t.id;
       return api.h("button.v-tab" + (sel ? ".v-on" : ""), { type: "button", "aria-current": sel ? "page" : null,
         on: { click: function () { api.go(t.id); } } },
@@ -715,10 +866,13 @@
       { id: "today", short: "Today", title: "Today", fn: "renderToday" },
       { id: "inbox", short: "Inbox", title: "Inbox", fn: "renderInbox" },
       { id: "lists", short: "Lists", title: "Lists", fn: "renderLists" },
-      { id: "otto", short: "Otto", title: "Otto", fn: "renderOtto" }
+      { id: "otto", short: "OttoOS", title: "OttoOS", fn: "renderOtto" },
+      // no tab of its own: the Needs you bar and the top pill open it
+      { id: "needs", short: "Needs you", title: "Needs you", fn: "renderNeeds", hidden: true }
     ],
-    alias: { needs: "inbox", activity: "otto", system: "otto", working: "otto", built: "otto" },
+    alias: { activity: "otto", system: "otto", working: "otto", built: "otto" },
     renderToday: renderToday,
+    renderNeeds: renderNeeds,
     renderInbox: renderInbox,
     renderLists: renderLists,
     renderOtto: renderOtto,

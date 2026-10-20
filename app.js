@@ -21,7 +21,7 @@
     { id: "activity", short: "Activity", title: "Activity" },
     { id: "system", short: "System", title: "System" }
   ];
-  var OLD_TAB = { home: "today", needs: "today", working: "system", built: "system", domains: "lists", life: "lists", timeline: "activity" };
+  var OLD_TAB = { home: "today", working: "system", built: "system", domains: "lists", life: "lists", timeline: "activity" };
   var STATES = {
     live: "Live", dark: "Dark", dormant: "Dormant", retired: "Retired",
     running: "Running", needs_you: "Needs you", dry_run: "Dry run"
