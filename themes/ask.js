@@ -1,7 +1,9 @@
 /* Ask Otto, the box on the OttoOS Otto tab (helper module, loaded before v3.js through
    "needs" in themes/list.js). window.OttoAsk.card(snapshot, api) returns one card:
    the last exchanges (newest at bottom; the last 3 shown, the rest behind "Earlier"),
-   then the text box and Send. Status is a shape plus a word, the v3 way.
+   then the text box and Send. Status is a shape plus a word, the v3 way; a failed answer
+   is plain words (no shape). An exchange from an earlier Chicago day carries its written
+   day with the time ("Sunday, October 18, 7:45 AM"); today's carry the time only.
    Rendering only: every read and write goes through api.ask (app.js); text nodes only. */
 (function () {
   "use strict";
@@ -19,15 +21,24 @@
       return api.h("div.a-line", null, x);
     });
   }
+  // When an exchange was asked: the time today, the written day and time on any other day.
+  function when(api, ts) {
+    var t = api.fmtTime(ts);
+    if (!t || api.dayKey(ts) === api.dayKey(new Date(Date.now()))) return t;
+    return api.fmtDay(ts) + ", " + t;
+  }
   function exchange(api, r, last) {
     var ask = api.ask, body;
     if (r.status === "answered") body = api.h("div.a-a", null, lines(api, r.answer));
-    else if (r.status === "failed") body = api.h("div.a-a", null, status(api, "wait", "Otto could not answer that - try again"));
+    else if (r.status === "failed") body = api.h("div.a-a", null, api.h("div.a-line.a-fail", null, "Otto could not answer that - try again"));
     else if (!ask.inHours()) body = api.h("div.a-a", null, status(api, "dark", "Waiting"));
     else body = api.h("div.a-a", null, status(api, "run", "Otto is thinking"),
       last && ask.stopped() ? api.h("button.v-link.a-check", { type: "button", on: { click: ask.check } }, "Check again") : null);
+    var at = when(api, r.ts), today = at === api.fmtTime(r.ts);
+    var q = api.h("div.a-q-text", null, r.text);
     return api.h("div.a-ex", null,
-      api.h("div.a-q", null, api.h("div.a-q-text", null, r.text), api.h("div.a-q-t.v-num", null, api.fmtTime(r.ts))),
+      today ? api.h("div.a-q", null, q, api.h("div.a-q-t.v-num", null, at))
+        : api.h("div.a-q.a-old", null, api.h("div.a-q-t.a-q-day.v-num", null, at), q),
       body);
   }
   function card(s, api) {

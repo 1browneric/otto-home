@@ -5,9 +5,13 @@
 [data-theme="v3"] .a-q { display: flex; align-items: baseline; gap: 16px; }
 [data-theme="v3"] .a-q-text { flex: 1; min-width: 0; font-size: 18px; color: var(--soft); line-height: 1.35; overflow-wrap: anywhere; }
 [data-theme="v3"] .a-q-t { flex: none; font-size: 18px; color: var(--muted); }
+/* an earlier day: the written day and time on its own line above the question */
+[data-theme="v3"] .a-q.a-old { flex-direction: column; align-items: stretch; gap: 2px; }
 [data-theme="v3"] .a-a { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--blue); }
 [data-theme="v3"] .a-line { font-size: 18px; font-weight: 500; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
 [data-theme="v3"] .a-line + .a-line { margin-top: 2px; }
+/* a failed answer: plain words, no status shape */
+[data-theme="v3"] .a-fail { font-weight: 400; color: var(--soft); }
 [data-theme="v3"] .a-a .v-status { white-space: normal; }
 [data-theme="v3"] .a-check { margin-left: 16px; min-height: 0; }
 [data-theme="v3"] .a-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 12px; }

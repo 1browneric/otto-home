@@ -420,7 +420,8 @@
     var rows = (s && s.demo_asks) || [], mode = params.get("ask");
     var now = Date.now(), n = rows.length;
     state.ask.rows = rows.map(function (r, i) {
-      var at = new Date(now - (n - i) * 25 * 60000).toISOString();
+      // days_ago: an exchange from an earlier day, so the thread shows its written day
+      var at = new Date(now - (n - i) * 25 * 60000 - (r.days_ago || 0) * 86400000).toISOString();
       return { id: r.id, ts: at, text: r.text, status: r.status || "answered", answer: r.answer || "", answered_at: at, attempts: 0 };
     });
     if (mode === "thinking" || mode === "night" || mode === "failed") {
