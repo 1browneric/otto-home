@@ -394,6 +394,10 @@
       sent && sent.ok !== false ? status(api, "live", "Undone") : r.id && api.undoable(r)
         ? api.h("button.v-btn.v-btn-sm", { type: "button", on: { click: function () { api.send(r.id, "undo", r.undo_token); } } }, "Undo") : null);
   }
+  function sortedTotal(b) {
+    var n = (b && b.sorted) || {};
+    return (n.receipts || 0) + (n.refunds || 0) + (n.bills || 0);
+  }
   function inboxCard(api, s) {
     var b = s.inbox;
     if (!on(b)) return null;
@@ -403,6 +407,7 @@
       [ik.read != null ? ik.read : null, "Read today, new and older"],
       [fn || null, "Otto filed today"],
       [dg || null, "Digest lines today"],
+      [sortedTotal(b) || null, "Receipts and bills sorted"],
       [ik.ignored || null, "Ignored by rule"],
       [ik.waiting || null, "Waiting to be read"]]);
     if (!lines) return null;
@@ -584,6 +589,7 @@
       var did = fn || dg.length || needs.length;
       var lines = statLines(api, [
         [ik.read != null ? ik.read : null, "Read today, new and older"],
+        [sortedTotal(b) || null, "Receipts and bills sorted"],
         [ik.ignored || null, "Ignored by rule"],
         [ik.waiting || null, "Waiting to be read"]]);
       cards.push(card(api, "Otto's mail today", null, [
