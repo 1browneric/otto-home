@@ -1,11 +1,14 @@
 /* OttoOS v3, the production look. Four text tabs: Today (the Needs you bar, the weather,
    the day as a calendar grid, tasks, mail, recovery), Inbox (decisions, filed today, unread
    mail), Lists (tasks by date) and OttoOS (agents, VM, activity, decisions on record).
-   The Needs you bar opens #needs: the decisions only, nothing else.
-   Reads the v3 snapshot blocks (today, weather, recovery, sports, truck, due, inbox,
-   lookahead, watching, goals, platform, agents_runs, vm, decisions). Any block may be
-   missing or { connected: false }: a glance tile is then left out, a card collapses to
-   one muted line or is left out. Rendering only: every tap goes through api.send;
+   Every Today card is one tap target (an "Open" word in its header, no icons): the Needs
+   you bar opens #needs (the decisions only), Weather opens #weather (the Forecast screen),
+   the rest open the app that holds the thing (Google Calendar, Google Tasks, Gmail, the
+   recovery app, ESPN) with the web page as the fallback, or the OttoOS tab section.
+   Reads the v3 snapshot blocks (today, weather, recovery, sports, due, inbox, watching,
+   goals, platform, agents_runs, vm, decisions; truck and lookahead stay in the snapshot
+   for other surfaces). Any block may be missing or { connected: false }: a card then
+   collapses to one muted line or is left out. Rendering only: every tap goes through api.send;
    no fetch, no storage, text nodes only. No icons anywhere: tabs are words. */
 (function () {
   "use strict";
@@ -27,11 +30,74 @@
   function status(api, kind, word) {
     return api.h("span.v-status.v-s-" + kind, null, api.h("span", null, word || (KIND[kind] || {}).word || ""));
   }
-  function card(api, label, right, body, extra) {
-    return api.h("section.v-card" + (extra || ""), null,
-      label ? api.h("div.v-card-head", null, api.h("h2.v-label", null, label), right || null) : null,
+  // opt: { go: a tap target (below), id: an anchor a Today card can scroll to }.
+  function card(api, label, right, body, extra, opt) {
+    var go = opt && opt.go, attrs = go ? tapAttrs(api, label, go) : {};
+    if (opt && opt.id) attrs.id = "v-sec-" + opt.id;
+    var head = go ? api.h("span.v-card-right", null, right || null, openWord(api)) : right || null;
+    return api.h("section.v-card" + (extra || "") + (go ? ".v-tap" : ""), attrs,
+      label ? api.h("div.v-card-head", null, api.h("h2.v-label", null, label), head) : null,
       body);
   }
+
+  /* ---------- tap targets: the whole card opens another screen ----------
+     { tab, sec }: an in-app screen (sec scrolls to that section of it);
+     { app, web }: a phone app by its URL scheme, the web page when the app did not open;
+     { web }: a web page only. A button or link inside the card keeps its own tap. */
+  var APPS = {
+    calendar: { app: "googlecalendar://", web: "https://calendar.google.com/" },
+    tasks: { app: "googletasks://", web: "https://tasks.google.com/" },
+    gmail: { app: "googlegmail://", web: "https://mail.google.com/" }
+  };
+  // A target the snapshot carries (the recovery card's: the shell never names that app):
+  // an app scheme plus an https page, nothing else.
+  function dataTarget(o) {
+    if (!o || !/^[a-z][a-z0-9+.-]*:\/\/$/.test(String(o.app || "")) || !/^https:\/\/[^\s"<>]+$/.test(String(o.web || ""))) return null;
+    return { app: String(o.app), web: String(o.web) };
+  }
+  // The game in the ESPN app (its own deep link, the one espn.com pages carry), else the
+  // game page on espn.com, else the Chiefs schedule there. There is no in-app score screen.
+  function espnTarget(g) {
+    var id = g && /^\d+$/.test(String(g.espn_id || "")) ? String(g.espn_id) : null;
+    if (!id) return { web: "https://www.espn.com/nfl/team/schedule/_/name/kc" };
+    return { app: "sportscenter://x-callback-url/showGame?url=/nfl/game/_/gameId/" + id,
+      web: "https://www.espn.com/nfl/game/_/gameId/" + id };
+  }
+  // The app when it is installed; the web page when the app did not open (the page is
+  // still showing 1.5 s later).
+  function openApp(app, web) {
+    var left = false, mark = function () { if (document.visibilityState === "hidden") left = true; };
+    try { document.addEventListener("visibilitychange", mark); } catch (e) { /* none */ }
+    setTimeout(function () {
+      try { document.removeEventListener("visibilitychange", mark); } catch (e) { /* none */ }
+      if (!left && document.visibilityState === "visible" && web) window.location.href = web;
+    }, 1500);
+    window.location.href = app;
+  }
+  function goTo(api, t) {
+    if (t.app) { openApp(t.app, t.web); return; }
+    if (t.web) { window.location.href = t.web; return; }
+    api.go(t.tab);
+    if (t.sec) {
+      var el = document.getElementById ? document.getElementById("v-sec-" + t.sec) : null;
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+    }
+  }
+  function inner(ev) { // the tap landed on a button or link inside the card
+    for (var x = ev.target; x && x !== ev.currentTarget; x = x.parentNode) {
+      if (x.tagName === "BUTTON" || x.tagName === "A") return true;
+    }
+    return false;
+  }
+  function tapAttrs(api, label, t) {
+    return { role: "link", tabindex: "0", "aria-label": (label || "") + ", open",
+      "data-go": t.app || t.web || "#" + t.tab, "data-web": t.app ? t.web : null, "data-sec": t.sec || null,
+      on: {
+        click: function (ev) { if (!inner(ev)) goTo(api, t); },
+        keydown: function (ev) { if ((ev.key === "Enter" || ev.key === " ") && !inner(ev)) { ev.preventDefault(); goTo(api, t); } }
+      } };
+  }
+  function openWord(api) { return api.h("span.v-open", null, "Open"); }
   function link(api, text, fn) { return api.h("button.v-link", { type: "button", on: { click: fn } }, text); }
   function muted(api, text) { return api.h("div.v-muted-line", null, text); }
   function on(x) { return !!x && x.connected !== false; }
@@ -164,48 +230,16 @@
       on(s.due) && g.overdue.length ? stripStat(api, "Overdue", g.overdue.length, true) : null);
   }
 
-  /* ---------- Today: glance tiles (a tile without a source is left out) ---------- */
-  function tile(api, kicker, big, lines, cls) {
-    return api.h("div.v-tile" + (cls || ""), null,
-      api.h("div.v-tile-k", null, kicker),
-      api.h("div.v-tile-big.v-num", null, big),
-      lines.filter(Boolean).map(function (l) { return api.h("div.v-tile-l", null, l); }));
-  }
-  var TRUCK_STALE_MS = 2 * 3600000;
-  // "10:36 AM today", else "Friday, October 16, 10:36 AM": written-out date, 12-hour time.
-  function asOfLabel(api, x) {
-    if (api.dayKey(x) === todayKey(api)) return api.fmtTime(x) + " today";
-    return x.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", month: "long", day: "numeric" }) + ", " + api.fmtTime(x);
-  }
-  function glance(api, s) {
-    // Weather is its own full-width card and recovery its own card (as in the Daily Email,
-    // no recovery number anywhere else), so the tiles are the game or week, and the truck.
-    var sp = s.sports, t = s.truck, tiles = [];
-    if (on(sp) && sp.game) {
-      tiles.push(tile(api, "Game today", sp.game.headline, [api.fmtTime(sp.game.time), sp.game.channel ? "On " + sp.game.channel : null], ".v-tile-text"));
-    } else {
-      var wk = weekTile(api, s);
-      if (wk) tiles.push(wk);
-    }
-    if (on(t) && t.fuel_pct != null) {
-      // the Colorado card rule: GM's own numbers, with "As of <time>" once they are stale
-      var asOf = api.d(t.as_of), old = asOf && nowMs() - asOf.getTime() > TRUCK_STALE_MS;
-      tiles.push(tile(api, t.name || "Truck", t.fuel_pct + "%", [t.gallons != null ? t.gallons + " gal" : null, t.range_mi != null ? "Range " + t.range_mi + " mi" : null,
-        old ? "As of " + asOfLabel(api, asOf) : t.odometer ? "Odometer " + String(t.odometer).replace(" mi", "") : null]));
-    }
-    return tiles.length ? api.h("div.v-glance", { "aria-label": "At a glance" }, tiles) : null;
-  }
-
-  // In the game slot on a day with no game: the week ahead, counted.
-  function weekTile(api, s) {
-    var l = s.lookahead, u = s.due;
-    if (!on(l) && !on(u)) return null;
-    var evN = on(l) ? (l.days || []).reduce(function (a, dy) { return a + (dy.items || []).length; }, 0) : null;
-    var dl = on(u) ? (u.items || []).filter(function (t) { return t.day_offset != null && t.day_offset >= 1 && t.day_offset <= 7; }).length : null;
-    var first = on(l) ? (l.days || [])[0] : null, firstIt = first && (first.items || [])[0];
-    return tile(api, "Week ahead", evN != null ? api.plural(evN, "event") : api.plural(dl, "deadline"), [
-      evN != null && dl ? api.plural(dl, "deadline") : null,
-      firstIt ? "Next: " + firstIt.title : null], ".v-tile-text");
+  /* ---------- Today: the game (the Week ahead and Colorado tiles left Today 2026-10-20;
+     their data stays in the snapshot for the other surfaces) ---------- */
+  function gameCard(api, s) {
+    var sp = s.sports;
+    if (!on(sp) || !sp.game) return null;
+    var g = sp.game;
+    return card(api, "Game today", null, [
+      api.h("div.v-game-big", null, g.headline),
+      g.time ? api.h("div.v-game-l.v-num", null, api.fmtTime(g.time)) : null,
+      g.channel ? api.h("div.v-game-l", null, "On " + g.channel) : null], ".v-card-game", { go: espnTarget(g) });
   }
 
   /* ---------- Today: the day as a calendar grid (Google Calendar's day view) ----------
@@ -267,7 +301,8 @@
   function timeline(api, s) {
     var t = s.today;
     if (!t) return null;
-    if (!on(t)) return card(api, "Today", null, muted(api, "Calendar not read this check"));
+    var cal = { go: APPS.calendar };
+    if (!on(t)) return card(api, "Today", null, muted(api, "Calendar not read this check"), "", cal);
     var all = (t.events || []).filter(function (e) { return api.d(e.start); });
     var allDay = all.filter(function (e) { return e.all_day; });
     var now = nowMs(), nowM = ctMin(new Date(now)), isToday = !t.as_of || api.dayKey(t.as_of) === todayKey(api);
@@ -277,7 +312,7 @@
       return { e: e, a: a, b: Math.max(b, a + 15), past: (y ? y.getTime() : x.getTime() + 30 * 60000) < now };
     }).sort(function (p, q) { return p.a - q.a || q.b - p.b; });
     if (!rows.length && !allDay.length) {
-      return card(api, "Today", null, [muted(api, "Nothing on the calendar today"), t.footer ? api.h("div.v-foot", null, t.footer) : null]);
+      return card(api, "Today", null, [muted(api, "Nothing on the calendar today"), t.footer ? api.h("div.v-foot", null, t.footer) : null], "", cal);
     }
     var lo = 24, hi = 0;
     rows.forEach(function (r) { lo = Math.min(lo, Math.floor(r.a / 60)); hi = Math.max(hi, Math.ceil(r.b / 60)); });
@@ -319,7 +354,7 @@
       return api.h("div.v-conflict", null, status(api, "wait", "Conflict " + api.fmtTime(c.at)), api.h("span.v-conflict-x", null, c.text));
     });
     return card(api, "Today", api.h("span.v-card-meta", null, api.plural(all.length, "event")),
-      [top, grid, conflicts, t.footer ? api.h("div.v-foot", null, t.footer) : null], ".v-card-cal");
+      [top, grid, conflicts, t.footer ? api.h("div.v-foot", null, t.footer) : null], ".v-card-cal", cal);
   }
 
   /* ---------- conflicts in the next 14 days (hidden when there are none) ---------- */
@@ -331,7 +366,7 @@
         return api.h("div.v-conflict-row", null,
           api.h("div.v-ev-sub", null, status(api, "wait", c.day || api.fmtDay(c.at))),
           api.h("div.v-ev-title", null, c.text));
-      }), ".v-card-needs");
+      }), ".v-card-needs", { go: APPS.calendar });
   }
 
   /* ---------- Needs You ---------- */
@@ -393,7 +428,7 @@
   }
   function dueCard(api, s) {
     if (!s.due) return null;
-    if (!on(s.due)) return card(api, "Due today and overdue", null, muted(api, "Tasks not read yet"));
+    if (!on(s.due)) return card(api, "Due today and overdue", null, muted(api, "Tasks not read yet"), "", { go: APPS.tasks });
     var g = dueGroups(api, s), body = [];
     if (g.overdue.length) body.push(api.h("div.v-sub-head", null, status(api, "wait", "Overdue " + g.overdue.length)));
     g.overdue.forEach(function (t) { body.push(taskRow(api, t)); });
@@ -408,7 +443,7 @@
         soon.forEach(function (t) { body.push(taskRow(api, t)); });
       }
     }
-    return card(api, g.overdue.length || g.today.length ? "Due today and overdue" : "Tasks", link(api, "All lists", function () { api.go("lists"); }), body);
+    return card(api, g.overdue.length || g.today.length ? "Due today and overdue" : "Tasks", null, body, "", { go: APPS.tasks });
   }
 
   /* ---------- inbox ---------- */
@@ -462,11 +497,10 @@
       [sortedTotal(b) || null, "Receipts and bills sorted"],
       [ik.waiting || null, "Waiting to be read"]]);
     if (!lines) return null;
-    return card(api, "Inbox", api.h("a.v-link", { href: GMAIL_APP, "aria-label": "Open Gmail",
-      on: { click: function (ev) { ev.preventDefault(); openGmail(); } } }, "Open"), [
+    return card(api, "Inbox", null, [
       lines,
       (b.top || []).slice(0, 2).map(function (r) { return mailRow(api, r); })
-    ]);
+    ], "", { go: APPS.gmail });
   }
 
   /* ---------- watching, goals ---------- */
@@ -478,9 +512,10 @@
         r.note ? api.h("div.v-row-n", null, r.note) : null);
     });
   }
-  function listCard(api, label, b) { // nothing set up: no card at all
+  // nothing set up: no card at all. opt as card(): Today's copy opens the OttoOS tab's.
+  function listCard(api, label, b, opt) {
     if (!on(b) || !(b.rows || []).length) return null;
-    return card(api, label, null, lineRows(api, b.rows));
+    return card(api, label, null, lineRows(api, b.rows), "", opt);
   }
 
 
@@ -571,7 +606,8 @@
     var kind = wxKind(w.code, w.now_sky || w.sky);
     return kind ? { kind: kind, night: wxNight(api, w, nowMs()) } : null;
   }
-  function weatherCard(api, s) {
+  // tap: Today's card opens the Forecast screen; the screen's own copy is not a link.
+  function weatherCard(api, s, tap) {
     var w = s.weather;
     if (!on(w) || w.hi == null) return null;
     var st = wxState(api, w), kind = st ? st.kind : "cloudy", night = st ? st.night : false;
@@ -583,14 +619,17 @@
     else if (down && now < down.getTime()) sun = "Sunset " + api.fmtTime(down);
     var lines = [w.now != null ? "High " + w.hi + "°" : null, w.now != null ? "Low " + w.lo + "°" : null,
       w.wind, w.rain, sun].filter(Boolean);
-    return api.h("section.v-wx.v-wx-" + kind + (night ? ".v-wx-night" : ""), { "aria-label": "Weather, " + word, "data-wx": kind + (night ? "-night" : "") },
+    var attrs = tap ? tapAttrs(api, "Weather, " + word, { tab: "weather" }) : { "aria-label": "Weather, " + word };
+    attrs["data-wx"] = kind + (night ? "-night" : "");
+    return api.h("section.v-wx.v-wx-" + kind + (night ? ".v-wx-night" : "") + (tap ? ".v-tap" : ""), attrs,
       api.h("div.v-wx-sky"), api.h("div.v-wx-glow"), api.h("div.v-wx-clouds"), api.h("div.v-wx-fall"), api.h("div.v-wx-flash"), api.h("div.v-wx-scrim"),
       api.h("div.v-wx-body", null,
-        api.h("div.v-wx-main", null,
-          api.h("h2.v-wx-k", null, "Weather"),
-          api.h("div.v-wx-big.v-num" + (w.now != null ? "" : ".v-wx-pair"), null, w.now != null ? w.now + "°" : w.hi + "° / " + w.lo + "°"),
-          api.h("div.v-wx-word", null, word)),
-        api.h("div.v-wx-lines.v-num", null, lines.map(function (l) { return api.h("div", null, l); }))));
+        api.h("div.v-wx-head", null, api.h("h2.v-wx-k", null, tap ? "Weather" : "Now"), tap ? openWord(api) : null),
+        api.h("div.v-wx-row", null,
+          api.h("div.v-wx-main", null,
+            api.h("div.v-wx-big.v-num" + (w.now != null ? "" : ".v-wx-pair"), null, w.now != null ? w.now + "°" : w.hi + "° / " + w.lo + "°"),
+            api.h("div.v-wx-word", null, word)),
+          api.h("div.v-wx-lines.v-num", null, lines.map(function (l) { return api.h("div", null, l); })))));
   }
 
   /* ---------- Needs you: the bar on top of Today, and its own view (#needs) ---------- */
@@ -611,6 +650,54 @@
       link(api, "Back to Today", function () { api.go("today"); })),
       api.h("div.v-stack", null, list.length ? list.map(function (it) { return needFull(api, it); })
         : muted(api, "Nothing waiting on you"))];
+  }
+
+  /* ---------- Forecast (#weather): the sky now, the next 24 hours, the next 7 days ----------
+     From the weather block's hours and days (one Open-Meteo read on the VM). A table, one
+     stat per cell, the column names on top; a new day in the hourly list gets its own line. */
+  var FC_HOURS = 24;
+  function fcRain(x) { return x.rain_pct != null ? x.rain_pct + "%" : ""; }
+  function hourOnly(api, x) { return api.fmtTime(x).replace(":00 ", " "); }   // "3 PM"
+  function forecastHours(api, w) {
+    var start = nowMs() - nowMs() % 3600000;   // the current hour (Central is whole hours off UTC)
+    var rows = (w.hours || []).filter(function (x) { var t = api.d(x.at); return t && t.getTime() >= start; }).slice(0, FC_HOURS);
+    if (!rows.length) return card(api, "Next 24 hours", null, muted(api, "Hourly forecast not in this check"));
+    var out = [api.h("div.v-fc-row.v-fc-cols", null, api.h("span", null, "Time"), api.h("span.v-fc-t", null, "Temp"), api.h("span", null, "Sky"), api.h("span.v-fc-r", null, "Rain"))];
+    var lastDay = api.dayKey(new Date(nowMs()));
+    // the Now row agrees with the sky card when the reading is from this hour
+    var asOf = api.d(w.as_of), fresh = w.now != null && asOf && asOf.getTime() >= start;
+    rows.forEach(function (x, i) {
+      if (i === 0 && fresh) x = { at: x.at, temp: w.now, sky: w.now_sky || x.sky, rain_pct: x.rain_pct };
+      var t = api.d(x.at), k = api.dayKey(t);
+      if (k !== lastDay) {
+        out.push(api.h("div.v-sub-head.v-fc-day", null, t.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", month: "long", day: "numeric" })));
+        lastDay = k;
+      }
+      out.push(api.h("div.v-fc-row", null,
+        api.h("span.v-num", null, i === 0 ? "Now" : hourOnly(api, t)),
+        api.h("span.v-fc-t.v-num", null, x.temp + "°"),
+        api.h("span.v-fc-s", null, x.sky || ""),
+        api.h("span.v-fc-r.v-num", null, fcRain(x))));
+    });
+    return card(api, "Next 24 hours", null, out, ".v-card-fc");
+  }
+  function forecastDays(api, w) {
+    var rows = (w.days || []).slice(0, 7);
+    if (!rows.length) return card(api, "Next 7 days", null, muted(api, "Daily forecast not in this check"));
+    return card(api, "Next 7 days", null, rows.map(function (x) {
+      return api.h("div.v-fc-dayrow", null,
+        api.h("div.v-fc-dtop", null, api.h("span.v-fc-dname", null, api.fmtDayOnly(x.date)), api.h("span.v-fc-s", null, x.sky || "")),
+        api.h("div.v-fc-dstats.v-num", null,
+          api.h("span", null, "High " + x.hi + "°"), api.h("span", null, "Low " + x.lo + "°"),
+          x.rain_pct != null ? api.h("span", null, "Rain " + x.rain_pct + "%") : null));
+    }), ".v-card-fc");
+  }
+  function renderWeather(s, api) {
+    var w = s.weather;
+    var head = api.h("div.v-head.v-head-row", null, api.h("h1.v-h1", null, "Forecast"),
+      link(api, "Back to Today", function () { api.go("today"); }));
+    if (!on(w) || w.hi == null) return [head, muted(api, "Weather not read this check")];
+    return [head, api.h("div.v-stack.v-fc", null, weatherCard(api, s, false), forecastHours(api, w), forecastDays(api, w))];
   }
 
   /* ---------- Recovery: the Daily Email's recovery card, same labels, same order ----------
@@ -655,24 +742,13 @@
         r.sleep_need_h != null ? kvRow(api, "Need", hmText(r.sleep_need_h)) : null,
         r.sleep_debt_h != null ? kvRow(api, "Debt", hmText(r.sleep_debt_h)) : null)) : null;
     var day = r.date ? api.fmtDayOnly(r.date) : null;
-    return api.h("section.v-card.v-wh", null,
-      api.h("div.v-card-head", null, api.h("h2.v-label", null, r.source || "Recovery"), day ? api.h("span.v-card-meta", null, day) : null),
+    var go = dataTarget(r.open), meta = day ? api.h("span.v-card-meta", null, day) : null;
+    return api.h("section.v-card.v-wh" + (go ? ".v-tap" : ""), go ? tapAttrs(api, r.source || "Recovery", go) : null,
+      api.h("div.v-card-head", null, api.h("h2.v-label", null, r.source || "Recovery"),
+        go ? api.h("span.v-card-right", null, meta, openWord(api)) : meta),
       api.h("div.v-wh-rings", null, rings),
       stats.length ? api.h("div.v-wh-stats", null, stats) : null,
       stages);
-  }
-
-  /* ---------- Inbox card: Open goes to the Gmail app ---------- */
-  var GMAIL_APP = "googlegmail://", GMAIL_WEB = "https://mail.google.com/";
-  // The Gmail app when it is installed; the web inbox when the app did not open.
-  function openGmail() {
-    var left = false, mark = function () { if (document.visibilityState === "hidden") left = true; };
-    try { document.addEventListener("visibilitychange", mark); } catch (e) { /* none */ }
-    setTimeout(function () {
-      try { document.removeEventListener("visibilitychange", mark); } catch (e) { /* none */ }
-      if (!left && document.visibilityState === "visible") window.location.href = GMAIL_WEB;
-    }, 1500);
-    window.location.href = GMAIL_APP;
   }
 
   /* ---------- Today ---------- */
@@ -680,11 +756,12 @@
     return api.h("div.v-head", null, api.h("h1.v-h1", null, title), sub ? api.h("div.v-h1-sub", null, sub) : null);
   }
   function renderToday(s, api) {
-    // Phone order: Needs you bar, conflicts, weather, tiles, the day, tasks, mail, watching,
-    // goals, recovery. The system lives on the OttoOS tab only; the week ahead is left out.
-    var colA = api.h("div.v-col.v-col-a", null, ord(1, conflictsCard(api, s)), ord(2, weatherCard(api, s)), ord(3, glance(api, s)), ord(4, timeline(api, s)));
+    // Phone order: Needs you bar, conflicts, weather, the game, the day, tasks, mail,
+    // watching, goals, recovery; every card full width. The system lives on the OttoOS tab.
+    var colA = api.h("div.v-col.v-col-a", null, ord(1, conflictsCard(api, s)), ord(2, weatherCard(api, s, true)), ord(3, gameCard(api, s)), ord(4, timeline(api, s)));
     var colB = api.h("div.v-col.v-col-b", null, ord(5, dueCard(api, s)), ord(6, inboxCard(api, s)),
-      ord(7, listCard(api, "Watching", s.watching)), ord(8, listCard(api, "Goals", s.goals)));
+      ord(7, listCard(api, "Watching", s.watching, { go: { tab: "otto", sec: "watching" } })),
+      ord(8, listCard(api, "Goals", s.goals, { go: { tab: "otto", sec: "goals" } })));
     var colC = api.h("div.v-col.v-col-c", null, ord(9, whoopCard(api, s)));
     return [heading(api, api.fmtDay(new Date()), "Otto checked " + api.fmtTime(s.generated)), needsBar(api),
       api.h("div.v-grid", null, colA, colB, colC)];
@@ -825,7 +902,7 @@
     return [heading(api, "Otto", null), window.OttoAsk ? window.OttoAsk.card(s, api) : null, dayStrip(api, s),
       api.h("div.v-grid.v-grid-otto", null,
         api.h("div.v-col", null, ord(1, statusCard), ord(3, vmCard), ord(5, decisions),
-          ord(6, listCard(api, "Watching", s.watching)), ord(7, listCard(api, "Goals", s.goals))),
+          ord(6, listCard(api, "Watching", s.watching, { id: "watching" })), ord(7, listCard(api, "Goals", s.goals, { id: "goals" }))),
         api.h("div.v-col", null, ord(2, agents)),
         api.h("div.v-col", null, ord(4, act), ord(8, mapCard), ord(10, api.lookPicker())))];
   }
@@ -868,11 +945,14 @@
       { id: "lists", short: "Lists", title: "Lists", fn: "renderLists" },
       { id: "otto", short: "OttoOS", title: "OttoOS", fn: "renderOtto" },
       // no tab of its own: the Needs you bar and the top pill open it
-      { id: "needs", short: "Needs you", title: "Needs you", fn: "renderNeeds", hidden: true }
+      { id: "needs", short: "Needs you", title: "Needs you", fn: "renderNeeds", hidden: true },
+      // no tab of its own: Today's Weather card opens it
+      { id: "weather", short: "Forecast", title: "Forecast", fn: "renderWeather", hidden: true }
     ],
     alias: { activity: "otto", system: "otto", working: "otto", built: "otto" },
     renderToday: renderToday,
     renderNeeds: renderNeeds,
+    renderWeather: renderWeather,
     renderInbox: renderInbox,
     renderLists: renderLists,
     renderOtto: renderOtto,

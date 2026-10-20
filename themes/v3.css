@@ -75,17 +75,17 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-s-wait, [data-theme="v3"] .v-s-late { color: var(--amber); }
 [data-theme="v3"] .v-amber { color: var(--amber); }
 
-/* ---------- glance ---------- */
-[data-theme="v3"] .v-glance { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-[data-theme="v3"] .v-tile {
-  background: var(--card); border-radius: 16px; padding: 12px 16px 16px;
-  box-shadow: inset 0 0 0 1px var(--line), 0 12px 32px rgba(0, 0, 0, 0.3);
-}
-[data-theme="v3"] .v-tile-k { font-size: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-[data-theme="v3"] .v-tile-big { font: 600 30px/1.1 var(--font); letter-spacing: -0.02em; margin: 4px 0 8px; }
-[data-theme="v3"] .v-tile-text .v-tile-big { font-size: 22px; line-height: 1.2; letter-spacing: 0; padding: 4px 0 2px; }
-[data-theme="v3"] .v-tile-l { font-size: 18px; color: var(--soft); line-height: 1.3; }
-[data-theme="v3"] .v-off .v-tile-big { color: var(--charcoal); }
+/* ---------- tap targets: the whole card opens another screen (an "Open" word, no icons) ---------- */
+[data-theme="v3"] .v-tap { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.12s ease, filter 0.12s ease; }
+[data-theme="v3"] .v-tap:active { transform: scale(0.985); filter: brightness(1.12); }
+[data-theme="v3"] .v-tap:focus-visible { outline: 2px solid var(--blue-hi); outline-offset: 2px; }
+[data-theme="v3"] .v-card-right { display: inline-flex; align-items: baseline; gap: 16px; white-space: nowrap; }
+[data-theme="v3"] .v-open { font-size: 18px; font-weight: 600; color: var(--blue-hi); }
+[data-theme="v3"] [id^="v-sec-"] { scroll-margin-top: calc(env(safe-area-inset-top) + 80px); }
+
+/* ---------- the game (full width) ---------- */
+[data-theme="v3"] .v-game-big { font: 600 24px/1.2 var(--font); margin: 4px 0 4px; }
+[data-theme="v3"] .v-game-l { font-size: 18px; color: var(--soft); line-height: 1.35; }
 
 /* ---------- timeline ---------- */
 [data-theme="v3"] .v-tl { display: flex; flex-direction: column; }
@@ -338,7 +338,12 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-wx-fall { z-index: 3; display: none; }
 [data-theme="v3"] .v-wx-flash { z-index: 4; display: none; background: rgba(220, 230, 255, 0.5); opacity: 0; }
 [data-theme="v3"] .v-wx-scrim { z-index: 5; background: linear-gradient(90deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.30)); }
-[data-theme="v3"] .v-wx-body { position: relative; z-index: 6; display: flex; justify-content: space-between; gap: 16px; padding: 16px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55); }
+[data-theme="v3"] .v-wx-body { position: relative; z-index: 6; display: block; padding: 16px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55); }
+/* the header row: the label left, Open right (same Open as every card); the reading below */
+[data-theme="v3"] .v-wx-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+[data-theme="v3"] .v-wx-row { display: flex; justify-content: space-between; gap: 16px; }
+/* the same blue Open, on a dark backing so it reads on the brightest sky */
+[data-theme="v3"] .v-wx-head > span { padding: 2px 10px; border-radius: 8px; background: rgba(11, 12, 14, 0.75); text-shadow: none; }
 [data-theme="v3"] .v-wx-k { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.92); }
 [data-theme="v3"] .v-wx-big { font: 300 64px/1.05 var(--font); letter-spacing: -0.03em; margin-top: 4px; }
 [data-theme="v3"] .v-wx-big.v-wx-pair { font-size: 44px; white-space: nowrap; margin-top: 8px; }
@@ -422,14 +427,17 @@ html[data-theme="v3"] body {
 
 /* ---------- Today: the calendar grid (Google Calendar's day view) ---------- */
 [data-theme="v3"] .v-cal-allday { display: flex; gap: 8px; align-items: flex-start; padding: 0 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
-[data-theme="v3"] .v-cal-adl { flex: none; width: 76px; font-size: 18px; color: var(--muted); line-height: 32px; }
+[data-theme="v3"] .v-cal-adl { flex: none; width: calc(var(--cal-gutter) - 8px); font-size: 18px; color: var(--muted); line-height: 32px; }
 [data-theme="v3"] .v-cal-adlist { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 [data-theme="v3"] .v-cal-chip { font-size: 18px; line-height: 1.3; padding: 4px 8px; border-radius: 6px; overflow-wrap: anywhere; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); }
+/* one gutter for every time label: wide enough that the bold now label ("12:59 PM") stays
+   on one line; the hour labels share it, so the rows stay even */
+[data-theme="v3"] .v-card-cal, [data-theme="v3"] .v-cal-grid { --cal-gutter: 96px; }
 [data-theme="v3"] .v-cal-grid { position: relative; margin: 20px 0 16px; }
 [data-theme="v3"] .v-cal-hour { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--line); }
 /* every label is centred on its own line the same way (22 px tall, 11 px above) */
-[data-theme="v3"] .v-cal-hl { position: absolute; left: 0; top: -11px; width: 72px; font-size: 18px; line-height: 22px; color: var(--muted); background: var(--card); padding-right: 4px; }
-[data-theme="v3"] .v-cal-events { position: absolute; top: 0; bottom: 0; left: 80px; right: 0; }
+[data-theme="v3"] .v-cal-hl { position: absolute; left: 0; top: -11px; width: calc(var(--cal-gutter) - 8px); white-space: nowrap; font-size: 18px; line-height: 22px; color: var(--muted); background: var(--card); padding-right: 4px; }
+[data-theme="v3"] .v-cal-events { position: absolute; top: 0; bottom: 0; left: var(--cal-gutter); right: 0; }
 [data-theme="v3"] .v-cal-b {
   position: absolute; overflow: hidden; border-radius: 6px; padding: 2px 6px; font-size: 18px; line-height: 22px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
@@ -440,8 +448,8 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-cal-bs { opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-theme="v3"] .v-cal-b.v-past, [data-theme="v3"] .v-cal-chip.v-past { opacity: 0.6; }
 [data-theme="v3"] .v-cal-now { position: absolute; left: 0; right: 0; height: 0; z-index: 3; display: flex; align-items: center; }
-[data-theme="v3"] .v-cal-nowt { position: absolute; left: 0; top: -11px; width: 80px; font-size: 18px; line-height: 22px; font-weight: 700; color: var(--blue-hi); background: var(--card); }
-[data-theme="v3"] .v-cal-nowl { position: absolute; left: 80px; right: 0; top: -1px; height: 2px; background: var(--blue); }
+[data-theme="v3"] .v-cal-nowt { position: absolute; left: 0; top: -11px; width: var(--cal-gutter); white-space: nowrap; font-size: 18px; line-height: 22px; font-weight: 700; color: var(--blue-hi); background: var(--card); }
+[data-theme="v3"] .v-cal-nowl { position: absolute; left: var(--cal-gutter); right: 0; top: -1px; height: 2px; background: var(--blue); }
 [data-theme="v3"] .v-card-cal .v-conflict { margin: 8px 0 0; }
 
 /* ---------- Recovery (the Daily Email's card) ---------- */
@@ -481,3 +489,19 @@ html[data-theme="v3"] body {
 [data-theme="v3"] .v-lists .v-task-done { max-width: 72px; }
 [data-theme="v3"] .v-lists .v-btn-sm { height: 36px; padding: 0 10px; font-size: 16px; }
 [data-theme="v3"] .v-lists .v-task-done .v-status { font-size: 16px; }
+
+/* ---------- Forecast (#weather): hourly table and the next 7 days ---------- */
+[data-theme="v3"] .v-fc .v-wx { min-height: 160px; }
+[data-theme="v3"] .v-fc-row { display: grid; grid-template-columns: 72px 56px 1fr 56px; gap: 8px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); font-size: 18px; }
+[data-theme="v3"] .v-fc-cols { border-top: 0; padding-top: 0; color: var(--muted); font-weight: 600; }
+[data-theme="v3"] .v-fc-t { text-align: right; font-weight: 600; }
+[data-theme="v3"] .v-fc-r { text-align: right; color: var(--soft); }
+[data-theme="v3"] .v-fc-cols .v-fc-t, [data-theme="v3"] .v-fc-cols .v-fc-r { color: var(--muted); }
+[data-theme="v3"] .v-fc-s { color: var(--soft); overflow-wrap: anywhere; }
+[data-theme="v3"] .v-fc-day { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); }
+[data-theme="v3"] .v-fc-dayrow { padding: 12px 0; border-top: 1px solid var(--line); }
+[data-theme="v3"] .v-card-head + .v-fc-dayrow { border-top: 0; padding-top: 0; }
+[data-theme="v3"] .v-fc-dtop { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+[data-theme="v3"] .v-fc-dname { font-weight: 600; }
+[data-theme="v3"] .v-fc-dtop .v-fc-s { text-align: right; }
+[data-theme="v3"] .v-fc-dstats { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 4px; font-size: 18px; color: var(--soft); }
